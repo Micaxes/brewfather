@@ -1,0 +1,58 @@
+[
+  {
+    "id": "r-apa",
+    "name": "American Pale Ale",
+    "style": "American Pale Ale",
+    "batchSize": 20,
+    "fermentables": [
+      { "id": "f-marisotter", "name": "Maris Otter", "category": "fermentable", "amount": 5, "unit": "kg" },
+      { "id": "f-crystal60", "name": "Crystal 60", "category": "fermentable", "amount": 0.5, "unit": "kg" }
+    ],
+    "hops": [
+      { "id": "h-cascade", "name": "Cascade", "category": "hop", "amount": 50, "unit": "g" },
+      { "id": "h-citra", "name": "Citra", "category": "hop", "amount": 30, "unit": "g" }
+    ],
+    "yeasts": [
+      { "id": "y-us05", "name": "SafAle US-05", "category": "yeast", "amount": 1, "unit": "pkg" }
+    ],
+    "miscs": [
+      { "id": "m-irishmoss", "name": "Irish Moss", "category": "misc", "amount": 5, "unit": "g" }
+    ]
+  },
+  {
+    "id": "r-citra-ipa",
+    "name": "Citra Single Hop IPA",
+    "style": "American IPA",
+    "batchSize": 20,
+    "fermentables": [
+      { "id": "f-marisotter", "name": "Maris Otter", "category": "fermentable", "amount": 5, "unit": "kg" },
+      { "id": "f-crystal60", "name": "Crystal 60", "category": "fermentable", "amount": 0.5, "unit": "kg" }
+    ],
+    "hops": [
+      { "id": "h-citra", "name": "Citra", "category": "hop", "amount": 150, "unit": "g" }
+    ],
+    "yeasts": [
+      { "id": "y-us05", "name": "SafAle US-05", "category": "yeast", "amount": 1, "unit": "pkg" }
+    ],
+    "miscs": [
+      { "id": "", "name": "Whirlfloc", "category": "misc", "amount": 1, "unit": "each" }
+    ]
+  },
+  {
+    "id": "r-imperial-stout",
+    "name": "Imperial Stout",
+    "style": "Imperial Stout",
+    "batchSize": 20,
+    "fermentables": [
+      { "id": "f-goldenpromise", "name": "Golden Promise", "category": "fermentable", "amount": 8, "unit": "kg" },
+      { "id": "f-chocolate", "name": "Chocolate Malt", "category": "fermentable", "amount": 0.5, "unit": "kg" }
+    ],
+    "hops": [
+      { "id": "h-magnum", "name": "Magnum", "category": "hop", "amount": 40, "unit": "g" }
+    ],
+    "yeasts": [
+      { "id": "y-1084", "name": "Wyeast 1084 Irish Ale", "category": "yeast", "amount": 1, "unit": "pkg" }
+    ],
+    "miscs": []
+  }
+]

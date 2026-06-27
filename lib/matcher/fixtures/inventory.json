@@ -1,0 +1,49 @@
+[
+  {
+    "id": "f-marisotter",
+    "name": "Maris Otter",
+    "category": "fermentable",
+    "amount": 10,
+    "unit": "kg",
+    "color": 3
+  },
+  {
+    "id": "f-crystal60",
+    "name": "Crystal 60",
+    "category": "fermentable",
+    "amount": 1,
+    "unit": "kg",
+    "color": 60
+  },
+  {
+    "id": "h-cascade",
+    "name": "Cascade",
+    "category": "hop",
+    "amount": 200,
+    "unit": "g",
+    "alpha": 5.5
+  },
+  {
+    "id": "h-citra",
+    "name": "Citra",
+    "category": "hop",
+    "amount": 100,
+    "unit": "g",
+    "alpha": 12
+  },
+  {
+    "id": "y-us05",
+    "name": "SafAle US-05",
+    "category": "yeast",
+    "amount": 2,
+    "unit": "pkg",
+    "attenuation": 81
+  },
+  {
+    "id": "m-irishmoss",
+    "name": "Irish Moss",
+    "category": "misc",
+    "amount": 50,
+    "unit": "g"
+  }
+]
