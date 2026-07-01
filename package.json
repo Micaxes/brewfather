@@ -13,7 +13,8 @@
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "test:watch": "vitest",
-    "spike": "tsx scripts/match-spike.ts"
+    "spike": "tsx scripts/match-spike.ts",
+    "push-recipe": "tsx scripts/push-scaled-recipe.ts"
   },
   "dependencies": {
     "@radix-ui/react-slot": "^1.3.0",

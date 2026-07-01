@@ -86,12 +86,26 @@ export interface BrewfatherData {
   recipes: RecipeDetail[];
 }
 
+/** Result of creating a recipe: the new `_id` (when returned) plus the raw response. */
+export interface CreatedRecipe {
+  id: string | undefined;
+  response: unknown;
+}
+
 export interface BrewfatherClient {
   getInventory(): Promise<InventoryItem[]>;
   getRecipes(): Promise<Recipe[]>;
   getRecipeDetail(id: string): Promise<RecipeDetail>;
   getRecipeDetails(): Promise<RecipeDetail[]>;
   getData(): Promise<BrewfatherData>;
+  /** Full, UN-normalized recipe JSON (needed to round-trip a recipe back on create). */
+  getRawRecipe(id: string): Promise<unknown>;
+  /**
+   * Create a recipe in the user's account via `POST /v2/recipes`. Requires the
+   * `recipes.write` scope on the API key. The batch-creation the PRD imagined is
+   * NOT possible — the Brewfather API has no create-batch endpoint.
+   */
+  createRecipe(body: unknown): Promise<CreatedRecipe>;
 }
 
 interface RequestContext {
@@ -162,6 +176,43 @@ async function requestJson(path: string, ctx: RequestContext): Promise<unknown> 
   }
 }
 
+/** Send a body-bearing request (POST/PATCH), retrying on 429, and parse the JSON reply. */
+async function mutateJson(
+  path: string,
+  method: "POST" | "PATCH" | "PUT",
+  body: unknown,
+  ctx: RequestContext
+): Promise<unknown> {
+  const url = `${ctx.baseUrl}${path}`;
+  for (let attempt = 0; ; attempt++) {
+    const res = await ctx.fetchImpl(url, {
+      method,
+      headers: {
+        Authorization: ctx.authHeader,
+        Accept: "application/json",
+        "Content-Type": "application/json",
+      },
+      body: body === undefined ? undefined : JSON.stringify(body),
+    });
+    if (res.status === 429 && attempt < ctx.maxRetries) {
+      await ctx.sleep(retryAfterMs(res.headers.get("retry-after"), attempt));
+      continue;
+    }
+    if (!res.ok) {
+      throw new BrewfatherError(
+        `Brewfather ${method} failed (${res.status} ${res.statusText}) for ${path}`,
+        res.status
+      );
+    }
+    try {
+      return await res.json();
+    } catch {
+      // A successful write may return an empty body; that is not an error.
+      return {};
+    }
+  }
+}
+
 /** Follow `limit`/`start_after` pagination until a short page is returned. */
 async function fetchAllPages(path: string, ctx: RequestContext): Promise<unknown[]> {
   const all: unknown[] = [];
@@ -221,8 +272,18 @@ async function getRecipes(ctx: RequestContext): Promise<Recipe[]> {
 }
 
 async function getRecipeDetail(ctx: RequestContext, id: string): Promise<RecipeDetail> {
-  const raw = await requestJson(`/v2/recipes/${encodeURIComponent(id)}`, ctx);
+  const raw = await getRawRecipe(ctx, id);
   return normalizeRecipeDetail(raw);
+}
+
+async function getRawRecipe(ctx: RequestContext, id: string): Promise<unknown> {
+  return requestJson(`/v2/recipes/${encodeURIComponent(id)}`, ctx);
+}
+
+async function createRecipe(ctx: RequestContext, body: unknown): Promise<CreatedRecipe> {
+  const response = await mutateJson("/v2/recipes", "POST", body, ctx);
+  const id = extractId(response) || undefined;
+  return { id, response };
 }
 
 async function getRecipeDetails(ctx: RequestContext): Promise<RecipeDetail[]> {
@@ -271,6 +332,8 @@ export function createBrewfatherClient(
     getRecipeDetail: (id: string) => getRecipeDetail(ctx, id),
     getRecipeDetails: () => getRecipeDetails(ctx),
     getData: () => getData(ctx),
+    getRawRecipe: (id: string) => getRawRecipe(ctx, id),
+    createRecipe: (body: unknown) => createRecipe(ctx, body),
   };
 }
 
