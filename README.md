@@ -70,6 +70,29 @@ dashboard at [http://localhost:3000/dashboard](http://localhost:3000/dashboard).
 With your key set, you will see your saved recipes ranked by what you can brew
 right now.
 
+## Authentication (v1)
+
+The dashboard is gated by [Supabase](https://supabase.com) Auth: unauthenticated
+visitors are redirected to `/login` (email + password sign-up / sign-in). To run
+it locally, add your Supabase project values to `.env.local` (see `.env.example`
+for the variable names):
+
+```ini
+NEXT_PUBLIC_SUPABASE_URL=...
+NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY=sb_publishable_...
+SUPABASE_SECRET_KEY=sb_secret_...            # server-only
+SUPABASE_JWKS_URL=.../auth/v1/.well-known/jwks.json
+```
+
+In the Supabase dashboard → **Authentication → URL Configuration**, set the
+**Site URL** (e.g. `http://localhost:3000` for dev, your Vercel URL in prod) and
+add `<site>/auth/callback` to the redirect allow-list so email-confirmation links
+work. Mirror the same env vars in Vercel → Project → Settings → Environment
+Variables.
+
+> Session handling uses `@supabase/ssr` (cookie-based) with the Next.js `proxy`
+> convention (`proxy.ts`) refreshing the session on each request.
+
 ## Scripts
 
 | Script | Description |
