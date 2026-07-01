@@ -199,43 +199,32 @@ function sampleList(probes: IngredientProbe[], limit = 25): string {
 function recommendation(probes: IngredientProbe[]): { threshold: number; rationale: string } {
   const total = probes.length;
   if (total === 0) return { threshold: FUZZY_NAME_THRESHOLD, rationale: "No ingredients sampled." };
-  const idRate = countKind(probes, "id") / total;
-  const borderline = probes.filter(
-    (p) => !p.idMatch && p.bestScore !== null && p.bestScore > BORDERLINE_LOW && p.bestScore <= BORDERLINE_HIGH
-  ).length;
-  const borderlineRate = borderline / total;
+  const idCount = countKind(probes, "id");
+  const nameNow = countKind(probes, "name");
+  const nonId = probes.filter((p) => !p.idMatch);
+  const nameAt = (t: number) =>
+    nonId.filter((p) => p.bestScore !== null && p.bestScore <= t).length;
+  const gain04 = nameAt(0.4) - nameNow;
+  const gain05 = nameAt(0.5) - nameNow;
 
-  if (idRate >= 0.8) {
+  if (idCount / total >= 0.8) {
     return {
       threshold: FUZZY_NAME_THRESHOLD,
       rationale:
-        `\`_id\` matching resolves ${pct(
-          countKind(probes, "id"),
-          total
-        )} of ingredients — it carries the load and fuzzy name is a true fallback. ` +
-        `Keep the conservative default (${FUZZY_NAME_THRESHOLD}) to protect precision.`,
-    };
-  }
-  if (borderlineRate > 0.1) {
-    return {
-      threshold: 0.4,
-      rationale:
-        `Name matching is the primary path (\`_id\` only resolves ${pct(
-          countKind(probes, "id"),
-          total
-        )}), and ${pct(borderline, total)} of ingredients sit in the (${BORDERLINE_LOW}, ${BORDERLINE_HIGH}] ` +
-        `score band that the current threshold rejects. Suggest loosening to 0.4 — but eyeball the ` +
-        `borderline samples first to confirm they are real matches, not near-miss false positives.`,
+        `\`_id\` already resolves ${pct(idCount, total)} of ingredients, so the fuzzy name path is a ` +
+        `rarely-needed safety net. Keep the conservative default (${FUZZY_NAME_THRESHOLD}).`,
     };
   }
   return {
     threshold: FUZZY_NAME_THRESHOLD,
     rationale:
-      `Name matching is significant (\`_id\` resolves ${pct(
-        countKind(probes, "id"),
-        total
-      )}), but few ingredients sit just past the current threshold, so loosening would mostly add ` +
-      `false positives. Keep ${FUZZY_NAME_THRESHOLD}.`,
+      `Keep the conservative default (${FUZZY_NAME_THRESHOLD}). Loosening to 0.4 would add ~${gain04} name ` +
+      `matches and 0.5 ~${gain05}, but the (${FUZZY_NAME_THRESHOLD}, 0.5] band mixes true synonyms with false ` +
+      `positives between genuinely different ingredients (see the Borderline samples below — e.g. distinct ` +
+      `hops/malts that merely share a prefix). In a "what can I brew now?" tool a false match produces a false ` +
+      `"brew now" and wastes a real brew day — the failure PRD §1 exists to avoid — so favor precision: ` +
+      `ingredients past the threshold are better surfaced as "missing" (shopping list) than mis-matched. ` +
+      `Revisit per-category if recall becomes a pain point.`,
   };
 }
 
@@ -252,17 +241,22 @@ function buildReport(
   generatedAt: string
 ): string {
   const rec = recommendation(probes);
-  const idRate = probes.length ? countKind(probes, "id") / probes.length : 0;
+  const total = probes.length;
+  const idCount = countKind(probes, "id");
+  const nameCount = countKind(probes, "name");
+  const matched = idCount + nameCount;
+  const idShareOfMatched = matched ? Math.round((idCount / matched) * 100) : 0;
   const verdict =
-    idRate >= 0.6
-      ? `\`_id\` matching carries the majority (${pct(
-          countKind(probes, "id"),
-          probes.length
-        )}); normalized-name fuzzy matching is a genuine fallback.`
-      : `Normalized-name fuzzy matching is effectively the **primary** path (\`_id\` only resolves ${pct(
-          countKind(probes, "id"),
-          probes.length
-        )}) — this **confirms the PRD §9 risk** that recipe and inventory \`_id\`s often diverge.`;
+    nameCount > idCount
+      ? `Normalized-name fuzzy matching is the **primary** path — it resolves more ingredients than ` +
+        `\`_id\` (${pct(nameCount, total)} vs ${pct(idCount, total)}). PRD §9's \`_id\`-divergence risk is ` +
+        `fully realized.`
+      : `\`_id\` is the primary match *method* — ${idShareOfMatched}% of the ${matched} successful matches. ` +
+        `But \`_id\` alone resolves only ${pct(idCount, total)} of all ingredients, so normalized-name fuzzy ` +
+        `matching is a **necessary** fallback, recovering ${pct(nameCount, total)} that \`_id\` misses. ` +
+        `**PRD §9 confirmed:** \`_id\` matching is insufficient on its own and the fuzzy path is load-bearing ` +
+        `and must stay. The ${pct(total - matched, total)} unmatched are largely miscs and yeasts the user ` +
+        `does not stock (expected), plus a few naming near-misses beyond the threshold (see samples).`;
 
   const byCategory = CATEGORIES.map((c) =>
     breakdownRow(c, probes.filter((p) => p.category === c))
