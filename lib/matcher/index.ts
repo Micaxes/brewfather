@@ -119,3 +119,9 @@ export {
   BASE_MALT_SHARE,
   IMPORTANCE_WEIGHT,
 } from "@/lib/matcher/score";
+export { scaleRecipeToStock } from "@/lib/matcher/scale";
+export type {
+  ScaledIngredient,
+  ScaleToStockOptions,
+  ScaleToStockResult,
+} from "@/lib/matcher/scale";
