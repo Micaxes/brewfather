@@ -123,7 +123,9 @@ describe("DashboardView", () => {
     expect(
       screen.getByRole("heading", { name: /no brew candidates yet/i })
     ).toBeInTheDocument();
-    expect(screen.getByText(/BF_USER_ID/)).toBeInTheDocument();
+    expect(
+      screen.getByRole("link", { name: /settings/i })
+    ).toHaveAttribute("href", "/dashboard/settings");
     expect(screen.queryByText("Brew now")).not.toBeInTheDocument();
   });
 
