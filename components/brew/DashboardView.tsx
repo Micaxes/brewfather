@@ -110,8 +110,11 @@ function EmptyState() {
       <Beer className="text-muted-foreground size-10" aria-hidden="true" />
       <h2 className="text-lg font-semibold">No brew candidates yet</h2>
       <p className="text-muted-foreground max-w-md text-sm">
-        Connect your account by setting BF_USER_ID and BF_API_KEY in your .env,
-        then save some recipes in Brewfather. They will show up here ranked by
+        Connect your Brewfather account in{" "}
+        <a href="/dashboard/settings" className="font-medium underline">
+          Settings
+        </a>
+        , then save some recipes in Brewfather. They will show up here ranked by
         what you can brew.
       </p>
     </div>

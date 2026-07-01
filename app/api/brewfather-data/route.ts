@@ -1,35 +1,34 @@
 import { NextResponse } from "next/server";
 
-import {
-  BrewfatherAuthError,
-  BrewfatherError,
-  createBrewfatherClient,
-} from "@/lib/brewfather/client";
+import { BrewfatherError, createBrewfatherClient } from "@/lib/brewfather/client";
+import { getUserBrewfatherCredentials } from "@/lib/brewfather/user-credentials";
 
-// Reads BF_USER_ID/BF_API_KEY and calls the upstream API, so it must run on the
-// Node.js runtime (needs Buffer + process.env) and must never be cached.
+// Resolves the signed-in user's key and calls the upstream API, so it must run
+// on the Node.js runtime (needs Buffer) and must never be cached.
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 /**
  * GET /api/brewfather-data
  *
- * Returns the user's normalized inventory + full recipes. The Brewfather key
- * and raw upstream payloads never leave the server: only normalized contract
- * shapes are returned, and errors are mapped to generic messages.
+ * Returns the signed-in user's normalized inventory + full recipes. The
+ * Brewfather key (decrypted server-side from Vault) and raw upstream payloads
+ * never leave the server: only normalized contract shapes are returned.
  */
 export async function GET() {
+  const credentials = await getUserBrewfatherCredentials();
+  if (!credentials) {
+    return NextResponse.json(
+      { error: "Brewfather account not connected." },
+      { status: 503 }
+    );
+  }
+
   try {
-    const client = createBrewfatherClient();
+    const client = createBrewfatherClient(credentials);
     const data = await client.getData();
     return NextResponse.json(data);
   } catch (error) {
-    if (error instanceof BrewfatherAuthError) {
-      return NextResponse.json(
-        { error: "Brewfather credentials are not configured." },
-        { status: 503 }
-      );
-    }
     if (error instanceof BrewfatherError) {
       console.error("Brewfather upstream request failed:", error.message);
       return NextResponse.json(

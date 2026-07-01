@@ -1,7 +1,9 @@
+import Link from "next/link";
+
 import { createClient } from "@/lib/supabase/server";
 import { signOut } from "@/app/login/actions";
 
-/** Server component: shows the signed-in user's email + a sign-out button. */
+/** Server component: shows the signed-in user's email + Settings / sign-out. */
 export async function UserBar() {
   const supabase = await createClient();
   const {
@@ -12,6 +14,12 @@ export async function UserBar() {
   return (
     <div className="flex items-center justify-end gap-3 border-b p-3 text-sm">
       <span className="text-muted-foreground">{user.email}</span>
+      <Link
+        href="/dashboard/settings"
+        className="rounded-md border border-input px-3 py-1 font-medium"
+      >
+        Settings
+      </Link>
       <form action={signOut}>
         <button className="rounded-md border border-input px-3 py-1 font-medium">
           Sign out
