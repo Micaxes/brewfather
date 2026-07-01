@@ -21,7 +21,13 @@ vi.mock("@/lib/brewfather/user-credentials", () => ({
   getUserBrewfatherCredentials: vi.fn(),
 }));
 
+vi.mock("@/lib/brewfather/cache", () => ({
+  getFreshCachedData: vi.fn(async () => null),
+  setCachedData: vi.fn(async () => {}),
+}));
+
 import { GET } from "@/app/api/brew-candidates/route";
+import { getFreshCachedData, setCachedData } from "@/lib/brewfather/cache";
 import { createBrewfatherClient } from "@/lib/brewfather/client";
 import { getUserBrewfatherCredentials } from "@/lib/brewfather/user-credentials";
 import inventoryFixture from "@/lib/matcher/fixtures/inventory.json";
@@ -29,6 +35,8 @@ import recipesFixture from "@/lib/matcher/fixtures/recipes.json";
 
 const inventory = inventoryFixture as unknown as InventoryItem[];
 const recipes = recipesFixture as unknown as RecipeDetail[];
+
+const req = () => new Request("http://localhost/api/brew-candidates");
 
 afterEach(() => {
   vi.clearAllMocks();
@@ -44,7 +52,7 @@ describe("GET /api/brew-candidates", () => {
       getData: vi.fn(async () => ({ inventory, recipes })),
     } as unknown as ReturnType<typeof createBrewfatherClient>);
 
-    const res = await GET();
+    const res = await GET(req());
     expect(res.status).toBe(200);
 
     const body = (await res.json()) as BrewCandidatesResponse;
@@ -53,12 +61,31 @@ describe("GET /api/brew-candidates", () => {
       new Set(["brew_now", "almost", "not_yet"])
     );
     expect(typeof body.generatedAt).toBe("string");
+    // Cache miss → fetched upstream and repopulated the cache.
+    expect(getFreshCachedData).toHaveBeenCalled();
+    expect(setCachedData).toHaveBeenCalledTimes(1);
+  });
+
+  it("serves cached data without hitting Brewfather when fresh", async () => {
+    vi.mocked(getUserBrewfatherCredentials).mockResolvedValue({
+      userId: "u",
+      apiKey: "k",
+    });
+    vi.mocked(getFreshCachedData).mockResolvedValueOnce({ inventory, recipes });
+
+    const res = await GET(req());
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as BrewCandidatesResponse;
+    expect(body.candidates).toHaveLength(3);
+    // Cache hit → no upstream client, no cache write.
+    expect(createBrewfatherClient).not.toHaveBeenCalled();
+    expect(setCachedData).not.toHaveBeenCalled();
   });
 
   it("returns empty candidates with a warning when Brewfather is not connected", async () => {
     vi.mocked(getUserBrewfatherCredentials).mockResolvedValue(null);
 
-    const res = await GET();
+    const res = await GET(req());
     expect(res.status).toBe(200);
 
     const body = (await res.json()) as BrewCandidatesResponse;
