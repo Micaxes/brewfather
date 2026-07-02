@@ -1,6 +1,5 @@
 import type { Metadata } from "next";
 
-import { UserBar } from "@/components/auth/UserBar";
 import { DashboardClient } from "./DashboardClient";
 
 export const metadata: Metadata = {
@@ -8,15 +7,10 @@ export const metadata: Metadata = {
 };
 
 /**
- * The "what can I brew now?" dashboard. Access is gated by the auth middleware
- * (unauthenticated visitors are redirected to `/login`). Fetches live results
- * from `GET /api/brew-candidates` via {@link DashboardClient}.
+ * The "what can I brew now?" dashboard. Access is gated by the auth middleware;
+ * the app shell (sidebar) is provided by the (dashboard) layout. Live results
+ * come from `GET /api/brew-candidates` via {@link DashboardClient}.
  */
 export default function DashboardPage() {
-  return (
-    <>
-      <UserBar />
-      <DashboardClient />
-    </>
-  );
+  return <DashboardClient />;
 }

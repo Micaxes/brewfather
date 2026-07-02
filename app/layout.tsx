@@ -1,6 +1,21 @@
 import type { Metadata } from "next";
+import { Hanken_Grotesk, Space_Grotesk } from "next/font/google";
 import type { ReactNode } from "react";
 import "./globals.css";
+
+const hanken = Hanken_Grotesk({
+  subsets: ["latin"],
+  weight: ["400", "500", "600", "700", "800"],
+  variable: "--font-hanken",
+  display: "swap",
+});
+
+const spaceGrotesk = Space_Grotesk({
+  subsets: ["latin"],
+  weight: ["400", "500", "600", "700"],
+  variable: "--font-space-grotesk",
+  display: "swap",
+});
 
 export const metadata: Metadata = {
   title: "Brewable — what can I brew now?",
@@ -12,8 +27,11 @@ export default function RootLayout({
   children,
 }: Readonly<{ children: ReactNode }>) {
   return (
-    <html lang="en" className="h-full antialiased">
-      <body className="min-h-full">{children}</body>
+    <html
+      lang="en"
+      className={`dark h-full antialiased ${hanken.variable} ${spaceGrotesk.variable}`}
+    >
+      <body className="min-h-full font-sans">{children}</body>
     </html>
   );
 }
