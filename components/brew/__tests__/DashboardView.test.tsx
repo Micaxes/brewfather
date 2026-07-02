@@ -80,7 +80,7 @@ describe("DashboardView", () => {
     render(<DashboardView state={{ status: "ready", data: populated }} />);
 
     expect(
-      screen.getByRole("heading", { level: 1, name: /what can i brew now/i })
+      screen.getByRole("heading", { level: 1, name: /you can brew/i })
     ).toBeInTheDocument();
 
     const sections = screen

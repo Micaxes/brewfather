@@ -1,4 +1,5 @@
 import { AlertCircle, Beer } from "lucide-react";
+import Link from "next/link";
 
 import type { BrewCandidatesResponse, RecipeMatch } from "@/lib/api-contract";
 import type { MatchBucket } from "@/lib/matcher/types";
@@ -13,75 +14,106 @@ export type DashboardState =
 /** The full "what can I brew now?" dashboard, across loading/error/empty/ready states. */
 export function DashboardView({ state }: { state: DashboardState }) {
   return (
-    <main className="mx-auto flex w-full max-w-5xl flex-col gap-8 px-4 py-8 sm:px-6">
-      <header className="flex flex-col gap-1">
-        <h1 className="text-3xl font-bold tracking-tight">
-          What can I brew now?
-        </h1>
-        <p className="text-muted-foreground">
-          Your saved recipes ranked against your current Brewfather inventory.
-        </p>
-      </header>
-      {renderBody(state)}
+    <main className="mx-auto flex w-full max-w-5xl animate-[fadein_0.4s_ease] flex-col gap-7">
+      {state.status === "loading" ? <LoadingState /> : null}
+      {state.status === "error" ? <ErrorState message={state.message} /> : null}
+      {state.status === "ready" ? <ReadyState data={state.data} /> : null}
     </main>
   );
 }
 
-function renderBody(state: DashboardState) {
-  switch (state.status) {
-    case "loading":
-      return <LoadingState />;
-    case "error":
-      return <ErrorState message={state.message} />;
-    case "ready":
-      return <ReadyState data={state.data} />;
+function ReadyState({ data }: { data: BrewCandidatesResponse }) {
+  const { candidates, warnings } = data;
+
+  if (candidates.length === 0) {
+    return (
+      <>
+        {warnings.length > 0 ? <Warnings warnings={warnings} /> : null}
+        <EmptyState />
+      </>
+    );
   }
+
+  const counts = countByBucket(candidates);
+  const grouped = groupByBucket(candidates);
+
+  return (
+    <>
+      <header className="flex flex-col gap-1">
+        <p className="text-sm text-dim">
+          Your brew board · {candidates.length} recipes ranked by what your stock
+          can make
+        </p>
+        <h1 className="font-display text-3xl font-bold tracking-[-0.02em]">
+          You can brew{" "}
+          <span className="text-teal-bright">
+            {counts.brew_now} recipe{counts.brew_now === 1 ? "" : "s"}
+          </span>{" "}
+          now
+        </h1>
+      </header>
+
+      {warnings.length > 0 ? <Warnings warnings={warnings} /> : null}
+
+      <StatCards counts={counts} total={candidates.length} />
+
+      <div className="flex flex-col gap-8">
+        {BUCKET_ORDER.map((bucket) =>
+          grouped[bucket].length > 0 ? (
+            <BucketSection key={bucket} bucket={bucket} matches={grouped[bucket]} />
+          ) : null
+        )}
+      </div>
+    </>
+  );
 }
 
-function ReadyState({ data }: { data: BrewCandidatesResponse }) {
-  if (data.candidates.length === 0) {
-    return <EmptyState />;
-  }
-
-  const byBucket = groupByBucket(data.candidates);
+function StatCards({
+  counts,
+  total,
+}: {
+  counts: Record<MatchBucket, number>;
+  total: number;
+}) {
+  const cards = [
+    { label: "Brew now", value: counts.brew_now, note: "ready with current stock", dot: "bg-teal shadow-[0_0_8px_var(--teal)]" },
+    { label: "Almost there", value: counts.almost, note: "a short shopping list away", dot: "bg-amber shadow-[0_0_8px_rgba(245,166,35,0.6)]" },
+    { label: "Not yet", value: counts.not_yet, note: "missing key ingredients", dot: "bg-[#3a4250]" },
+    { label: "Library", value: total, note: "saved recipes", dot: "bg-teal-bright" },
+  ];
   return (
-    <div className="flex flex-col gap-10">
-      {data.warnings.length > 0 ? <Warnings warnings={data.warnings} /> : null}
-      {BUCKET_ORDER.map((bucket) => (
-        <BucketSection key={bucket} bucket={bucket} matches={byBucket[bucket]} />
+    <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+      {cards.map((c) => (
+        <div key={c.label} className="glass rounded-[18px] p-5">
+          <div className="flex items-center gap-2 text-[13px] text-dim">
+            <span className={`size-2 rounded-full ${c.dot}`} aria-hidden="true" />
+            {c.label}
+          </div>
+          <div className="mt-2 font-display text-[38px] font-bold leading-none">
+            {c.value}
+          </div>
+          <div className="mt-1.5 text-xs text-faint">{c.note}</div>
+        </div>
       ))}
     </div>
   );
 }
 
-function groupByBucket(
-  candidates: RecipeMatch[]
-): Record<MatchBucket, RecipeMatch[]> {
-  const groups: Record<MatchBucket, RecipeMatch[]> = {
-    brew_now: [],
-    almost: [],
-    not_yet: [],
-  };
-  for (const candidate of candidates) {
-    groups[candidate.bucket].push(candidate);
-  }
-  return groups;
-}
-
 function LoadingState() {
   return (
-    <div className="flex flex-col gap-3" aria-busy="true" aria-live="polite">
+    <div role="status" className="flex flex-col gap-6">
       <span className="sr-only">Loading brew candidates…</span>
-      {[0, 1, 2].map((row) => (
-        <div
-          key={row}
-          className="bg-card flex flex-col gap-3 rounded-xl border p-4 shadow-sm"
-        >
-          <div className="bg-muted h-5 w-1/3 animate-pulse rounded" />
-          <div className="bg-muted h-4 w-2/3 animate-pulse rounded" />
-          <div className="bg-muted h-4 w-1/2 animate-pulse rounded" />
-        </div>
-      ))}
+      <div className="h-9 w-72 animate-pulse rounded-lg bg-white/5" />
+      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+        {[0, 1, 2, 3].map((i) => (
+          <div key={i} className="h-28 animate-pulse rounded-[18px] bg-white/5" />
+        ))}
+      </div>
+      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+        {[0, 1, 2].map((i) => (
+          <div key={i} className="h-44 animate-pulse rounded-[18px] bg-white/5" />
+        ))}
+      </div>
     </div>
   );
 }
@@ -90,14 +122,14 @@ function ErrorState({ message }: { message?: string }) {
   return (
     <div
       role="alert"
-      className="border-destructive/30 bg-destructive/10 text-destructive flex items-start gap-3 rounded-lg border p-4"
+      className="flex items-start gap-3 rounded-[20px] border border-danger/25 bg-danger/[0.06] p-5 text-sm backdrop-blur-md"
     >
-      <AlertCircle className="size-5 shrink-0" aria-hidden="true" />
-      <div className="flex flex-col gap-1">
-        <p className="font-medium">Could not load your brew candidates</p>
-        <p className="text-sm">
+      <AlertCircle className="size-5 flex-none text-danger" aria-hidden="true" />
+      <div>
+        <div className="font-semibold">Couldn’t load your brew board</div>
+        <p className="mt-0.5 text-dim">
           {message ??
-            "Something went wrong while contacting Brewfather. Please try again."}
+            "Something went wrong contacting Brewfather. Please try again."}
         </p>
       </div>
     </div>
@@ -106,15 +138,20 @@ function ErrorState({ message }: { message?: string }) {
 
 function EmptyState() {
   return (
-    <div className="bg-card flex flex-col items-center gap-3 rounded-xl border border-dashed p-10 text-center">
-      <Beer className="text-muted-foreground size-10" aria-hidden="true" />
-      <h2 className="text-lg font-semibold">No brew candidates yet</h2>
-      <p className="text-muted-foreground max-w-md text-sm">
+    <div className="flex flex-col items-center gap-3 rounded-[22px] border border-dashed border-white/12 bg-white/[0.03] p-12 text-center backdrop-blur-md">
+      <div className="brand-gradient flex size-12 items-center justify-center rounded-2xl">
+        <Beer className="size-6" strokeWidth={2} aria-hidden="true" />
+      </div>
+      <h2 className="font-display text-lg font-semibold">No brew candidates yet</h2>
+      <p className="max-w-md text-sm text-dim">
         Connect your Brewfather account in{" "}
-        <a href="/dashboard/settings" className="font-medium underline">
+        <Link
+          href="/dashboard/settings"
+          className="font-semibold text-teal-bright underline"
+        >
           Settings
-        </a>
-        , then save some recipes in Brewfather. They will show up here ranked by
+        </Link>
+        , then save some recipes in Brewfather. They’ll show up here ranked by
         what you can brew.
       </p>
     </div>
@@ -125,11 +162,33 @@ function Warnings({ warnings }: { warnings: string[] }) {
   return (
     <div
       role="status"
-      className="flex flex-col gap-1 rounded-lg border border-amber-500/30 bg-amber-500/10 p-3 text-sm text-amber-800 dark:text-amber-300"
+      className="flex flex-col gap-1 rounded-[16px] border border-amber/25 bg-amber/[0.08] p-3.5 text-sm text-amber"
     >
       {warnings.map((warning) => (
         <p key={warning}>{warning}</p>
       ))}
     </div>
   );
+}
+
+function countByBucket(candidates: RecipeMatch[]): Record<MatchBucket, number> {
+  const counts: Record<MatchBucket, number> = {
+    brew_now: 0,
+    almost: 0,
+    not_yet: 0,
+  };
+  for (const c of candidates) counts[c.bucket] += 1;
+  return counts;
+}
+
+function groupByBucket(
+  candidates: RecipeMatch[]
+): Record<MatchBucket, RecipeMatch[]> {
+  const grouped: Record<MatchBucket, RecipeMatch[]> = {
+    brew_now: [],
+    almost: [],
+    not_yet: [],
+  };
+  for (const c of candidates) grouped[c.bucket].push(c);
+  return grouped;
 }
