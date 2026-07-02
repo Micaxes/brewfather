@@ -1,41 +1,80 @@
 "use server";
 
+import { headers } from "next/headers";
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 
+import { createAdminClient } from "@/lib/supabase/admin";
 import { createClient } from "@/lib/supabase/server";
 
-function readCredentials(formData: FormData): { email: string; password: string } {
-  return {
-    email: String(formData.get("email") ?? "").trim(),
-    password: String(formData.get("password") ?? ""),
-  };
+async function getOrigin(): Promise<string> {
+  const h = await headers();
+  const host = h.get("x-forwarded-host") ?? h.get("host") ?? "localhost:3000";
+  const proto =
+    h.get("x-forwarded-proto") ?? (host.startsWith("localhost") ? "http" : "https");
+  return `${proto}://${host}`;
 }
 
-export async function signIn(formData: FormData): Promise<void> {
-  const next = String(formData.get("next") ?? "/dashboard") || "/dashboard";
-  const { email, password } = readCredentials(formData);
-  const supabase = await createClient();
-  const { error } = await supabase.auth.signInWithPassword({ email, password });
+/** Whether an account already exists for `email` (server-side, service-role only). */
+export async function checkEmail(email: string): Promise<{ exists: boolean }> {
+  const clean = email.trim().toLowerCase();
+  if (!clean) return { exists: false };
+  const admin = createAdminClient();
+  const { data, error } = await admin.rpc("email_exists", { p_email: clean });
   if (error) {
-    redirect(`/login?error=${encodeURIComponent(error.message)}`);
+    console.error("email_exists rpc failed:", error.message);
+    return { exists: false };
   }
+  return { exists: data === true };
+}
+
+/** Sign in an existing account with a password. Redirects on success. */
+export async function passwordSignIn(
+  email: string,
+  password: string
+): Promise<{ error?: string }> {
+  const supabase = await createClient();
+  const { error } = await supabase.auth.signInWithPassword({
+    email: email.trim(),
+    password,
+  });
+  if (error) return { error: error.message };
   revalidatePath("/", "layout");
-  redirect(next);
+  redirect("/dashboard");
 }
 
-export async function signUp(formData: FormData): Promise<void> {
-  const { email, password } = readCredentials(formData);
+/** Create a new account passwordlessly by emailing a magic sign-in link. */
+export async function sendSignupLink(
+  email: string
+): Promise<{ error?: string; sent?: boolean }> {
+  const origin = await getOrigin();
   const supabase = await createClient();
-  const { error } = await supabase.auth.signUp({ email, password });
-  if (error) {
-    redirect(`/login?error=${encodeURIComponent(error.message)}`);
-  }
-  redirect(
-    `/login?message=${encodeURIComponent(
-      "Account created. Check your email to confirm it, then sign in."
-    )}`
-  );
+  const { error } = await supabase.auth.signInWithOtp({
+    email: email.trim(),
+    options: {
+      shouldCreateUser: true,
+      emailRedirectTo: `${origin}/auth/confirm?next=/dashboard`,
+    },
+  });
+  if (error) return { error: error.message };
+  return { sent: true };
+}
+
+/** Email an existing account a one-time sign-in link (password fallback). */
+export async function sendSignInLink(
+  email: string
+): Promise<{ error?: string; sent?: boolean }> {
+  const origin = await getOrigin();
+  const supabase = await createClient();
+  const { error } = await supabase.auth.signInWithOtp({
+    email: email.trim(),
+    options: {
+      shouldCreateUser: false,
+      emailRedirectTo: `${origin}/auth/confirm?next=/dashboard`,
+    },
+  });
+  if (error) return { error: error.message };
+  return { sent: true };
 }
 
 export async function signOut(): Promise<void> {
