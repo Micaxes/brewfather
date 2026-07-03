@@ -33,7 +33,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
 
   return NextResponse.redirect(
     `${origin}/login?error=${encodeURIComponent(
-      "That confirmation link is invalid or has expired. Please sign in again."
+      "That sign-in link is invalid or has expired. Please sign in with your email and password."
     )}`
   );
 }
