@@ -1,29 +1,22 @@
 "use server";
 
-import { headers } from "next/headers";
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 
 import { createAdminClient } from "@/lib/supabase/admin";
 import { createClient } from "@/lib/supabase/server";
 
-async function getOrigin(): Promise<string> {
-  const h = await headers();
-  const host = h.get("x-forwarded-host") ?? h.get("host") ?? "localhost:3000";
-  const proto =
-    h.get("x-forwarded-proto") ?? (host.startsWith("localhost") ? "http" : "https");
-  return `${proto}://${host}`;
-}
-
 /** Whether an account already exists for `email` (server-side, service-role only). */
-export async function checkEmail(email: string): Promise<{ exists: boolean }> {
+export async function checkEmail(
+  email: string
+): Promise<{ exists?: boolean; error?: string }> {
   const clean = email.trim().toLowerCase();
   if (!clean) return { exists: false };
   const admin = createAdminClient();
   const { data, error } = await admin.rpc("email_exists", { p_email: clean });
   if (error) {
     console.error("email_exists rpc failed:", error.message);
-    return { exists: false };
+    return { error: "Something went wrong checking that email. Please try again." };
   }
   return { exists: data === true };
 }
@@ -43,38 +36,40 @@ export async function passwordSignIn(
   redirect("/dashboard");
 }
 
-/** Create a new account passwordlessly by emailing a magic sign-in link. */
-export async function sendSignupLink(
-  email: string
-): Promise<{ error?: string; sent?: boolean }> {
-  const origin = await getOrigin();
+/**
+ * Create a new account with email + password. Email confirmation is disabled on
+ * the Supabase project, so this returns a live session (no email is sent) and
+ * lands the user straight in the dashboard.
+ */
+export async function signUpWithPassword(
+  email: string,
+  password: string
+): Promise<{ error?: string; accountExists?: boolean }> {
   const supabase = await createClient();
-  const { error } = await supabase.auth.signInWithOtp({
+  const { data, error } = await supabase.auth.signUp({
     email: email.trim(),
-    options: {
-      shouldCreateUser: true,
-      emailRedirectTo: `${origin}/auth/confirm?next=/dashboard`,
-    },
+    password,
   });
-  if (error) return { error: error.message };
-  return { sent: true };
-}
-
-/** Email an existing account a one-time sign-in link (password fallback). */
-export async function sendSignInLink(
-  email: string
-): Promise<{ error?: string; sent?: boolean }> {
-  const origin = await getOrigin();
-  const supabase = await createClient();
-  const { error } = await supabase.auth.signInWithOtp({
-    email: email.trim(),
-    options: {
-      shouldCreateUser: false,
-      emailRedirectTo: `${origin}/auth/confirm?next=/dashboard`,
-    },
-  });
-  if (error) return { error: error.message };
-  return { sent: true };
+  if (error) {
+    if (error.code === "user_already_exists") {
+      return {
+        accountExists: true,
+        error: "That account already exists — sign in with your password instead.",
+      };
+    }
+    return { error: error.message };
+  }
+  if (!data.session) {
+    // Happens when "Confirm email" is still ON in the Supabase dashboard: the
+    // user row is created but no session comes back. Fail loudly instead of
+    // redirecting into the route guard's silent bounce.
+    return {
+      error:
+        "The server still requires email confirmation. Turn off “Confirm email” in Supabase (Authentication → Sign In / Providers → Email) and try again.",
+    };
+  }
+  revalidatePath("/", "layout");
+  redirect("/dashboard");
 }
 
 export async function signOut(): Promise<void> {

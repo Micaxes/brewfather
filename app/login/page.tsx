@@ -49,8 +49,8 @@ export default async function LoginPage({
         </div>
 
         <p className="mt-5 text-center text-[13px] text-faint">
-          New accounts sign in with a magic link. Your Brewfather key is stored
-          encrypted and only used server-side.
+          New here? Just pick a password — no confirmation email needed. Your
+          Brewfather key is stored encrypted and only used server-side.
         </p>
       </div>
     </main>

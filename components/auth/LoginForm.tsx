@@ -1,23 +1,22 @@
 "use client";
 
-import { MailCheck } from "lucide-react";
 import { type FormEvent, useState, useTransition } from "react";
 
 import {
   checkEmail,
   passwordSignIn,
-  sendSignInLink,
-  sendSignupLink,
+  signUpWithPassword,
 } from "@/app/login/actions";
 
-type Step = "email" | "password" | "sent";
+type Step = "email" | "password" | "create";
 
 const inputClass =
   "w-full rounded-xl border border-input bg-white/5 px-3.5 py-3 text-sm text-ink outline-none placeholder:text-faint focus:border-teal/60";
 
 /**
  * Email-first auth: one email field → Continue. If an account exists we reveal a
- * password field; if not, we email a passwordless magic sign-in link.
+ * password field to sign in; if not, we reveal one to create the account on the
+ * spot (email confirmation is disabled — no emails are ever sent).
  */
 export function LoginForm({ initialError }: { initialError?: string }) {
   const [step, setStep] = useState<Step>("email");
@@ -31,14 +30,9 @@ export function LoginForm({ initialError }: { initialError?: string }) {
     const value = email.trim();
     if (!value) return;
     startTransition(async () => {
-      const { exists } = await checkEmail(value);
-      if (exists) {
-        setStep("password");
-        return;
-      }
-      const res = await sendSignupLink(value);
+      const res = await checkEmail(value);
       if (res.error) setError(res.error);
-      else setStep("sent");
+      else setStep(res.exists ? "password" : "create");
     });
   }
 
@@ -48,45 +42,18 @@ export function LoginForm({ initialError }: { initialError?: string }) {
     const password = String(
       new FormData(event.currentTarget).get("password") ?? ""
     );
+    const isNewAccount = step === "create";
     startTransition(async () => {
-      const res = await passwordSignIn(email, password);
-      if (res?.error) setError(res.error);
+      const res = isNewAccount
+        ? await signUpWithPassword(email, password)
+        : await passwordSignIn(email, password);
+      if (res?.error) {
+        setError(res.error);
+        // Someone beat us to this email — switch to the sign-in step.
+        if ("accountExists" in res && res.accountExists) setStep("password");
+      }
       // On success the action redirects to /dashboard.
     });
-  }
-
-  function magicLinkInstead() {
-    setError(undefined);
-    startTransition(async () => {
-      const res = await sendSignInLink(email);
-      if (res.error) setError(res.error);
-      else setStep("sent");
-    });
-  }
-
-  if (step === "sent") {
-    return (
-      <div className="flex flex-col items-center gap-3 py-2 text-center">
-        <div className="flex size-11 items-center justify-center rounded-2xl border border-teal/25 bg-teal/12">
-          <MailCheck className="size-5 text-teal-bright" strokeWidth={2} />
-        </div>
-        <h2 className="font-display text-lg font-semibold">Check your email</h2>
-        <p className="text-sm text-dim">
-          We sent a sign-in link to <span className="text-ink">{email}</span>.
-          Open it on this device to continue.
-        </p>
-        <button
-          type="button"
-          onClick={() => {
-            setStep("email");
-            setError(undefined);
-          }}
-          className="mt-1 text-sm font-semibold text-teal-bright"
-        >
-          Use a different email
-        </button>
-      </div>
-    );
   }
 
   return (
@@ -137,14 +104,18 @@ export function LoginForm({ initialError }: { initialError?: string }) {
             </button>
           </div>
           <div>
-            <label className="mb-1.5 block text-xs text-dim">Password</label>
+            <label className="mb-1.5 block text-xs text-dim">
+              {step === "create" ? "Create a password" : "Password"}
+            </label>
             <input
               type="password"
               name="password"
               required
               autoFocus
               minLength={6}
-              autoComplete="current-password"
+              autoComplete={
+                step === "create" ? "new-password" : "current-password"
+              }
               className={inputClass}
             />
           </div>
@@ -153,15 +124,13 @@ export function LoginForm({ initialError }: { initialError?: string }) {
             disabled={pending}
             className="brand-gradient w-full rounded-xl py-3 text-[15px] font-bold disabled:opacity-70"
           >
-            {pending ? "Signing in…" : "Sign in"}
-          </button>
-          <button
-            type="button"
-            onClick={magicLinkInstead}
-            disabled={pending}
-            className="text-center text-[13px] font-semibold text-teal-bright"
-          >
-            Email me a sign-in link instead
+            {pending
+              ? step === "create"
+                ? "Creating account…"
+                : "Signing in…"
+              : step === "create"
+                ? "Create account"
+                : "Sign in"}
           </button>
         </form>
       )}

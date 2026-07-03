@@ -85,10 +85,12 @@ SUPABASE_JWKS_URL=.../auth/v1/.well-known/jwks.json
 ```
 
 In the Supabase dashboard → **Authentication → URL Configuration**, set the
-**Site URL** (e.g. `http://localhost:3000` for dev, your Vercel URL in prod) and
-add `<site>/auth/callback` to the redirect allow-list so email-confirmation links
-work. Mirror the same env vars in Vercel → Project → Settings → Environment
-Variables.
+**Site URL** (e.g. `http://localhost:3000` for dev, your Vercel URL in prod).
+Under **Authentication → Sign In / Providers → Email**, turn **Confirm email
+OFF** — sign-ups are password-based and create a session instantly, so no auth
+emails are ever sent (the hosted project has no custom SMTP and is capped at
+2 emails/hour). Mirror the same env vars in Vercel → Project → Settings →
+Environment Variables.
 
 > Session handling uses `@supabase/ssr` (cookie-based) with the Next.js `proxy`
 > convention (`proxy.ts`) refreshing the session on each request.
