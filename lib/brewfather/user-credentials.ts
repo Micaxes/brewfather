@@ -6,13 +6,67 @@
  * API key is only ever handled here on the server (the BFF), never sent to the
  * browser. Import from server code only.
  */
+import {
+  BrewfatherError,
+  createBrewfatherClient,
+  type BrewfatherClientOptions,
+} from "@/lib/brewfather/client";
 import { createClient } from "@/lib/supabase/server";
 
 export interface UserBrewfatherCredentials {
-  /** Brewfather user id (BF_USER_ID). */
+  /** Brewfather user id. */
   userId: string;
   /** Brewfather API key (decrypted from Vault). */
   apiKey: string;
+}
+
+/** Why a credential validation attempt failed. */
+export type CredentialValidationFailure = "invalid" | "rate_limited" | "unreachable";
+
+export type CredentialValidationResult =
+  | { ok: true }
+  | { ok: false; reason: CredentialValidationFailure };
+
+/**
+ * Test a User ID + API key pair against Brewfather with one cheap
+ * authenticated read (a single-item inventory request). Never throws — maps
+ * failures to a reason the Settings UI can phrase:
+ *
+ * - `invalid` — Brewfather rejected the pair (401/403): wrong values, revoked
+ *   key, or insufficient scope. Do not store.
+ * - `rate_limited` — Brewfather returned 429; the pair may be fine, try later.
+ * - `unreachable` — network/5xx trouble; verdict unknown, try again.
+ *
+ * The key is used only to build the auth header and is never logged or
+ * included in the result.
+ */
+export async function validateBrewfatherCredentials(
+  bfUserId: string,
+  apiKey: string,
+  options: Pick<BrewfatherClientOptions, "fetchImpl" | "baseUrl"> = {}
+): Promise<CredentialValidationResult> {
+  try {
+    const client = createBrewfatherClient({
+      userId: bfUserId,
+      apiKey,
+      // Fail fast: a validation answer should be immediate, not sleep through
+      // 429 backoff inside a server action.
+      maxRetries: 0,
+      ...options,
+    });
+    await client.ping();
+    return { ok: true };
+  } catch (error) {
+    if (error instanceof BrewfatherError) {
+      if (error.status === 401 || error.status === 403) {
+        return { ok: false, reason: "invalid" };
+      }
+      if (error.status === 429) {
+        return { ok: false, reason: "rate_limited" };
+      }
+    }
+    return { ok: false, reason: "unreachable" };
+  }
 }
 
 /** The current user's decrypted Brewfather credentials, or null if not connected. */
@@ -46,28 +100,66 @@ export async function saveUserBrewfatherCredentials(
   if (error) throw new Error(error.message);
 }
 
-/** Remove the current user's stored Brewfather credentials. */
+/**
+ * Remove the current user's stored Brewfather credentials. The underlying RPC
+ * (`delete_brewfather_credentials`, migration 0001) deletes both the row and
+ * its Vault secret, so no orphaned secret survives a disconnect.
+ */
 export async function deleteUserBrewfatherCredentials(): Promise<void> {
   const supabase = await createClient();
   const { error } = await supabase.rpc("delete_brewfather_credentials");
   if (error) throw new Error(error.message);
 }
 
-/** Whether the current user has connected Brewfather (without decrypting the key). */
-export async function getBrewfatherConnection(): Promise<{
+/**
+ * Stamp `last_validated_at = now()` on the current user's credentials row
+ * after a successful "Test connection" (RPC from migration 0004).
+ */
+export async function touchBrewfatherValidated(): Promise<void> {
+  const supabase = await createClient();
+  const { error } = await supabase.rpc("touch_brewfather_validated");
+  if (error) throw new Error(error.message);
+}
+
+export interface BrewfatherConnection {
   connected: boolean;
   bfUserId?: string;
-}> {
+  /** When the key was last verified against Brewfather (ISO), null if never. */
+  lastValidatedAt?: string | null;
+}
+
+/** The current user's connection status + health (without decrypting the key). */
+export async function getBrewfatherConnection(): Promise<BrewfatherConnection> {
   const supabase = await createClient();
   const {
     data: { user },
   } = await supabase.auth.getUser();
   if (!user) return { connected: false };
 
-  const { data } = await supabase
+  const { data, error } = await supabase
     .from("brewfather_credentials")
-    .select("bf_user_id")
+    .select("bf_user_id, last_validated_at")
     .eq("user_id", user.id)
     .maybeSingle();
-  return data?.bf_user_id ? { connected: true, bfUserId: data.bf_user_id } : { connected: false };
+
+  let row = data as
+    | { bf_user_id?: string; last_validated_at?: string | null }
+    | null;
+  if (error) {
+    // `last_validated_at` ships in migration 0004 — if that migration hasn't
+    // been applied yet, still report the connection itself.
+    const { data: bare } = await supabase
+      .from("brewfather_credentials")
+      .select("bf_user_id")
+      .eq("user_id", user.id)
+      .maybeSingle();
+    row = bare as { bf_user_id?: string } | null;
+  }
+
+  if (!row?.bf_user_id) return { connected: false };
+  return {
+    connected: true,
+    bfUserId: row.bf_user_id,
+    lastValidatedAt: row.last_validated_at ?? null,
+  };
 }
