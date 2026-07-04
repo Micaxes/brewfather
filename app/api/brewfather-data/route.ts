@@ -51,7 +51,7 @@ export async function GET(request: Request) {
       // BrewfatherError messages carry status + path only — never the key.
       console.error("Brewfather upstream request failed:", error.message);
       return NextResponse.json(
-        { error: UPSTREAM_ERRORS[code], code },
+        { error: UPSTREAM_ERRORS[code], errorCode: code },
         { status: code === "rate_limited" ? 429 : 502 }
       );
     }
