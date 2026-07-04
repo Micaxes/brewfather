@@ -104,12 +104,26 @@ describe("matchIngredient", () => {
     expect(match.have).toBe(0);
   });
 
-  it("flags a unit mismatch and compares raw amounts", () => {
+  it("compares pkg stock against a gram need (1 pkg = 12 g)", () => {
     const match = matchIngredient(
-      ingredient({ id: "y-us05", category: "yeast", amount: 1, unit: "g" }),
+      ingredient({ id: "y-us05", category: "yeast", amount: 20, unit: "g" }),
       index
     );
-    // pkg (count) vs g (mass) are incomparable -> raw amount used, flagged.
+    // 2 pkg of stock = 24 g >= 20 g.
+    expect(hasUnitMismatch(match)).toBe(false);
+    expect(match.have).toBe(24);
+    expect(match.status).toBe("satisfied");
+  });
+
+  it("flags a unit mismatch and compares raw amounts", () => {
+    const vialIndex = buildInventoryIndex([
+      { id: "y-wlp001", name: "WLP001 California Ale", category: "yeast", amount: 2, unit: "vial" },
+    ]);
+    const match = matchIngredient(
+      ingredient({ id: "y-wlp001", category: "yeast", amount: 1, unit: "g" }),
+      vialIndex
+    );
+    // vial (count) vs g (measure) are incomparable -> raw amount used, flagged.
     expect(hasUnitMismatch(match)).toBe(true);
     expect(match.have).toBe(2);
     expect(match.status).toBe("satisfied");
