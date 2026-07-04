@@ -35,7 +35,7 @@ import {
   getLastSyncedAt,
   setCachedData,
 } from "@/lib/brewfather/cache";
-import { createBrewfatherClient } from "@/lib/brewfather/client";
+import { BrewfatherError, createBrewfatherClient } from "@/lib/brewfather/client";
 import { getUserBrewfatherCredentials } from "@/lib/brewfather/user-credentials";
 import inventoryFixture from "@/lib/matcher/fixtures/inventory.json";
 import recipesFixture from "@/lib/matcher/fixtures/recipes.json";
@@ -191,7 +191,47 @@ describe("GET /api/brew-candidates", () => {
     const body = (await res.json()) as BrewCandidatesResponse;
     expect(body.candidates).toEqual([]);
     expect(body.syncedAt).toBeNull();
+    // A plain Error is a generic transient failure.
+    expect(body.errorCode).toBe("upstream");
     // getData() threw before the write — the previous good cache row survives.
     expect(setCachedData).not.toHaveBeenCalled();
+  });
+
+  it.each([401, 403])(
+    "classifies a Brewfather %i as a reconnect signal (revoked key)",
+    async (status) => {
+      connect();
+      vi.mocked(createBrewfatherClient).mockReturnValue({
+        getData: vi.fn(async () => {
+          throw new BrewfatherError(`Brewfather request failed (${status})`, status);
+        }),
+      } as unknown as ReturnType<typeof createBrewfatherClient>);
+
+      const res = await GET(req());
+      expect(res.status).toBe(502);
+
+      const body = (await res.json()) as BrewCandidatesResponse;
+      expect(body.errorCode).toBe("reconnect");
+      expect(body.warnings[0]).toMatch(/reconnect/i);
+      expect(body.warnings[0]).toMatch(/settings/i);
+      expect(setCachedData).not.toHaveBeenCalled();
+    }
+  );
+
+  it("surfaces Brewfather rate-limiting distinctly (429, no reconnect prompt)", async () => {
+    connect();
+    vi.mocked(createBrewfatherClient).mockReturnValue({
+      getData: vi.fn(async () => {
+        throw new BrewfatherError("Brewfather request failed (429)", 429);
+      }),
+    } as unknown as ReturnType<typeof createBrewfatherClient>);
+
+    const res = await GET(req());
+    expect(res.status).toBe(429);
+
+    const body = (await res.json()) as BrewCandidatesResponse;
+    expect(body.errorCode).toBe("rate_limited");
+    expect(body.warnings[0]).toMatch(/rate-limiting/i);
+    expect(body.warnings[0]).not.toMatch(/reconnect/i);
   });
 });

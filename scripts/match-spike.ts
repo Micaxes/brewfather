@@ -326,7 +326,9 @@ async function main(): Promise<void> {
   }
 
   console.log("Fetching real inventory + recipes from Brewfather…");
-  const client = createBrewfatherClient();
+  // The ONLY place the BF_* env credentials are allowed: an offline developer
+  // tool. Request paths must always pass the signed-in user's Vault key.
+  const client = createBrewfatherClient({ allowEnvFallback: true });
   const { inventory, recipes } = await client.getData();
   console.log(
     `Fetched ${inventory.length} inventory items and ${recipes.length} recipes.`

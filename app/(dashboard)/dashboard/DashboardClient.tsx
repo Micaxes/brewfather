@@ -2,15 +2,41 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 
-import type { BrewCandidatesResponse } from "@/lib/api-contract";
+import type {
+  BrewCandidatesResponse,
+  UpstreamErrorCode,
+} from "@/lib/api-contract";
 import {
   DashboardView,
   type DashboardState,
 } from "@/components/brew/DashboardView";
 import type { SyncStatus } from "@/components/brew/SyncButton";
 
-const SYNC_ERROR_MESSAGE =
-  "Couldn’t reach Brewfather. Check your API key or retry.";
+/** Inline sync-failure copy per upstream failure class (#23). */
+const SYNC_ERROR_MESSAGES: Record<UpstreamErrorCode, string> = {
+  reconnect:
+    "Brewfather rejected your API key. Reconnect it in Settings to keep syncing.",
+  rate_limited:
+    "Brewfather is rate-limiting requests. Try again in a few minutes.",
+  upstream: "Couldn’t reach Brewfather. Please retry in a moment.",
+};
+
+/**
+ * Pull the `errorCode` classification out of a failed BFF response body.
+ * Anything unparseable (or an unknown code) degrades to the generic
+ * `"upstream"` retry.
+ */
+async function readUpstreamErrorCode(res: Response): Promise<UpstreamErrorCode> {
+  try {
+    const body = (await res.json()) as Partial<BrewCandidatesResponse>;
+    if (body.errorCode === "reconnect" || body.errorCode === "rate_limited") {
+      return body.errorCode;
+    }
+  } catch {
+    // Non-JSON error body — treat as a transient upstream failure.
+  }
+  return "upstream";
+}
 
 /** How long the green "Synced" confirmation stays on the button. */
 const SUCCESS_FLASH_MS = 1800;
@@ -45,7 +71,11 @@ export function DashboardClient() {
       try {
         const res = await fetch("/api/brew-candidates");
         if (!res.ok) {
-          throw new Error(`Request failed with status ${res.status}`);
+          // Classified failure (revoked key / rate limit / transient) — let
+          // the error state drive the right prompt instead of a generic one.
+          const errorCode = await readUpstreamErrorCode(res);
+          if (active) setState({ status: "error", errorCode });
+          return;
         }
         const data = (await res.json()) as BrewCandidatesResponse;
         if (active) setState({ status: "ready", data });
@@ -84,7 +114,10 @@ export function DashboardClient() {
     try {
       const res = await fetch("/api/brew-candidates?refresh=true");
       if (!res.ok) {
-        throw new Error(`Sync failed with status ${res.status}`);
+        // Keep the last-good candidates on screen; surface a failure-specific
+        // inline message (reconnect vs. wait vs. retry) by the button.
+        setSyncError(SYNC_ERROR_MESSAGES[await readUpstreamErrorCode(res)]);
+        return;
       }
       const data = (await res.json()) as BrewCandidatesResponse;
       setState({ status: "ready", data });
@@ -99,7 +132,7 @@ export function DashboardClient() {
         );
       }
     } catch {
-      setSyncError(SYNC_ERROR_MESSAGE);
+      setSyncError(SYNC_ERROR_MESSAGES.upstream);
     } finally {
       syncInFlight.current = false;
       setSyncing(false);
