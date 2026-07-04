@@ -15,10 +15,18 @@ export async function GET(request: Request): Promise<NextResponse> {
 
   // Behind Vercel's proxy `origin` is the internal host; honor the forwarded
   // host so the post-auth redirect lands on the origin the user is browsing.
+  // Use the forwarded protocol too (`next start` self-populates these headers
+  // even without a proxy, where hardcoding https would break plain-http
+  // servers). Proxies may send a comma-separated list; the first entry is the
+  // client-facing one.
   const forwardedHost = request.headers.get("x-forwarded-host");
+  const forwardedProto =
+    request.headers.get("x-forwarded-proto")?.split(",")[0]?.trim() || "https";
   const isLocalEnv = process.env.NODE_ENV === "development";
   const target =
-    isLocalEnv || !forwardedHost ? origin : `https://${forwardedHost}`;
+    isLocalEnv || !forwardedHost
+      ? origin
+      : `${forwardedProto}://${forwardedHost}`;
 
   if (code) {
     const supabase = await createClient();

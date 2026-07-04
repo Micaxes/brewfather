@@ -1,6 +1,6 @@
 "use client";
 
-import { type FormEvent, useState, useTransition } from "react";
+import { type FormEvent, useEffect, useState, useTransition } from "react";
 
 import {
   checkEmail,
@@ -57,6 +57,27 @@ export function LoginForm({ initialError }: { initialError?: string }) {
   const [pending, startTransition] = useTransition();
   const [googleLoading, setGoogleLoading] = useState(false);
 
+  // If the user backs out of Google's consent screen, browsers restore this
+  // page from the back/forward cache with React state intact — including
+  // googleLoading=true. Reset it so the button doesn't stay stuck disabled.
+  useEffect(() => {
+    function onPageShow(event: PageTransitionEvent) {
+      if (event.persisted) setGoogleLoading(false);
+    }
+    window.addEventListener("pageshow", onPageShow);
+    return () => window.removeEventListener("pageshow", onPageShow);
+  }, []);
+
+  /*
+   * SECURITY NOTE — account linking (issue #29 §4 / AC6): since #30 disabled
+   * email confirmation, password sign-ups are auto-confirmed, so GoTrue may
+   * treat an attacker-pre-created password account for a victim's email as
+   * "verified" and auto-link the victim's Google identity into it
+   * (pre-account-takeover / nOAuth class). Before enabling the Google
+   * provider in the Supabase dashboard, runtime-verify the linking behavior
+   * for auto-confirmed accounts against the hosted project — or re-enable
+   * email confirmation.
+   */
   async function signInWithGoogle() {
     setError(undefined);
     setGoogleLoading(true);
