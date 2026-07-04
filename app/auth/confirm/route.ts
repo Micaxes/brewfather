@@ -9,13 +9,8 @@
 import { type EmailOtpType } from "@supabase/supabase-js";
 import { NextResponse, type NextRequest } from "next/server";
 
+import { safeNext } from "@/lib/auth/safe-next";
 import { createClient } from "@/lib/supabase/server";
-
-/** Only allow relative, non-protocol-relative redirect targets. */
-function safeNext(next: string | null): string {
-  if (next && next.startsWith("/") && !next.startsWith("//")) return next;
-  return "/dashboard";
-}
 
 export async function GET(request: NextRequest): Promise<NextResponse> {
   const { searchParams, origin } = new URL(request.url);
