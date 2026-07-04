@@ -5,6 +5,7 @@ import type { BrewCandidatesResponse, RecipeMatch } from "@/lib/api-contract";
 import type { MatchBucket } from "@/lib/matcher/types";
 import { BUCKET_ORDER } from "@/components/brew/buckets";
 import { BucketSection } from "@/components/brew/BucketSection";
+import { SyncButton, type SyncStatus } from "@/components/brew/SyncButton";
 
 export type DashboardState =
   | { status: "loading" }
@@ -12,23 +13,47 @@ export type DashboardState =
   | { status: "ready"; data: BrewCandidatesResponse };
 
 /** The full "what can I brew now?" dashboard, across loading/error/empty/ready states. */
-export function DashboardView({ state }: { state: DashboardState }) {
+export function DashboardView({
+  state,
+  sync,
+}: {
+  state: DashboardState;
+  /** Manual-sync wiring for the header's "Sync now" button (ready state only). */
+  sync?: SyncStatus;
+}) {
   return (
     <main className="mx-auto flex w-full max-w-5xl animate-[fadein_0.4s_ease] flex-col gap-7">
       {state.status === "loading" ? <LoadingState /> : null}
       {state.status === "error" ? <ErrorState message={state.message} /> : null}
-      {state.status === "ready" ? <ReadyState data={state.data} /> : null}
+      {state.status === "ready" ? (
+        <ReadyState data={state.data} sync={sync} />
+      ) : null}
     </main>
   );
 }
 
-function ReadyState({ data }: { data: BrewCandidatesResponse }) {
-  const { candidates, warnings } = data;
+function ReadyState({
+  data,
+  sync,
+}: {
+  data: BrewCandidatesResponse;
+  sync?: SyncStatus;
+}) {
+  const { candidates, warnings, syncedAt } = data;
 
   if (candidates.length === 0) {
+    // The onboarding empty-state has no header, but a connected user with an
+    // empty library still needs sync access. `syncedAt` doubles as the
+    // connected signal: a cache row only exists after a successful sync, so
+    // the not-connected onboarding (syncedAt === null) stays button-free.
     return (
       <>
         {warnings.length > 0 ? <Warnings warnings={warnings} /> : null}
+        {sync && syncedAt !== null ? (
+          <div className="flex justify-end">
+            <SyncButton syncedAt={syncedAt} {...sync} />
+          </div>
+        ) : null}
         <EmptyState />
       </>
     );
@@ -39,18 +64,21 @@ function ReadyState({ data }: { data: BrewCandidatesResponse }) {
 
   return (
     <>
-      <header className="flex flex-col gap-1">
-        <p className="text-sm text-dim">
-          Your brew board · {candidates.length} recipes ranked by what your stock
-          can make
-        </p>
-        <h1 className="font-display text-3xl font-bold tracking-[-0.02em]">
-          You can brew{" "}
-          <span className="text-teal-bright">
-            {counts.brew_now} recipe{counts.brew_now === 1 ? "" : "s"}
-          </span>{" "}
-          now
-        </h1>
+      <header className="flex flex-wrap items-start justify-between gap-x-6 gap-y-4">
+        <div className="flex flex-col gap-1">
+          <p className="text-sm text-dim">
+            Your brew board · {candidates.length} recipes ranked by what your stock
+            can make
+          </p>
+          <h1 className="font-display text-3xl font-bold tracking-[-0.02em]">
+            You can brew{" "}
+            <span className="text-teal-bright">
+              {counts.brew_now} recipe{counts.brew_now === 1 ? "" : "s"}
+            </span>{" "}
+            now
+          </h1>
+        </div>
+        {sync ? <SyncButton syncedAt={syncedAt} {...sync} /> : null}
       </header>
 
       {warnings.length > 0 ? <Warnings warnings={warnings} /> : null}

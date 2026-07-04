@@ -32,18 +32,54 @@ export async function getFreshCachedData(now: number = Date.now()): Promise<Brew
   return data.data as BrewfatherData;
 }
 
-/** Upsert the current user's cached data with a fresh timestamp. */
-export async function setCachedData(payload: BrewfatherData): Promise<void> {
+/**
+ * When the current user's cache row was last written (`fetched_at`), i.e. the
+ * last successful Brewfather sync, or null when no row exists. Unlike
+ * {@link getFreshCachedData} this ignores the TTL — it powers the dashboard's
+ * "Last synced" label and the manual-sync cooldown.
+ */
+export async function getLastSyncedAt(): Promise<string | null> {
   const supabase = await createClient();
   const {
     data: { user },
   } = await supabase.auth.getUser();
-  if (!user) return;
+  if (!user) return null;
 
+  const { data, error } = await supabase
+    .from("brewfather_data_cache")
+    .select("fetched_at")
+    .eq("user_id", user.id)
+    .maybeSingle();
+  if (error || !data?.fetched_at) return null;
+  return data.fetched_at as string;
+}
+
+/**
+ * Upsert the current user's cached data with a fresh timestamp.
+ *
+ * Returns the `fetched_at` that was written, or null when the write did not
+ * land (no authenticated user, or the upsert failed) — callers that need a
+ * success signal (e.g. "Last synced") must not treat a resolved promise as
+ * proof the row updated.
+ */
+export async function setCachedData(
+  payload: BrewfatherData
+): Promise<string | null> {
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) return null;
+
+  const fetchedAt = new Date().toISOString();
   const { error } = await supabase.from("brewfather_data_cache").upsert({
     user_id: user.id,
     data: payload,
-    fetched_at: new Date().toISOString(),
+    fetched_at: fetchedAt,
   });
-  if (error) console.error("brewfather cache write failed:", error.message);
+  if (error) {
+    console.error("brewfather cache write failed:", error.message);
+    return null;
+  }
+  return fetchedAt;
 }
