@@ -17,7 +17,8 @@ import type {
 import {
   buildInventoryIndex,
   hasUnitMismatch,
-  matchRecipeIngredients,
+  matchIngredients,
+  prepareIngredients,
   FUZZY_NAME_THRESHOLD,
 } from "@/lib/matcher/match";
 import {
@@ -70,7 +71,10 @@ function evaluateRecipe(
   index: ReturnType<typeof buildInventoryIndex>,
   warnings: Set<string>
 ): RecipeMatch {
-  const ingredientMatches = matchRecipeIngredients(recipe, index);
+  // Cleaned pipeline: drop junk `items` rows, merge duplicate lines, then
+  // match everything against the shared inventory index.
+  const prepared = prepareIngredients(recipe);
+  const ingredientMatches = matchIngredients(prepared.all, index);
 
   for (const match of ingredientMatches) {
     if (hasUnitMismatch(match) && match.inventoryItem) {
@@ -81,10 +85,15 @@ function evaluateRecipe(
     }
   }
 
-  const baseMalts = findBaseMalts(recipe.fermentables);
+  // Base-malt detection must see the same cleaned/merged fermentable
+  // references the matches carry (findBaseMalts compares by object identity).
+  const baseMalts = findBaseMalts(prepared.fermentables);
   const score = scoreRecipe(ingredientMatches, baseMalts);
   const bucket = bucketFor(ingredientMatches, score);
-  const shoppingList = bucket === "almost" ? buildShoppingList(ingredientMatches) : [];
+  // Surface the buy-list for brew_now too (a brewable recipe can still be
+  // missing a misc worth grabbing); not_yet gaps show in the ingredient rows.
+  const shoppingList =
+    bucket === "not_yet" ? [] : buildShoppingList(ingredientMatches);
 
   return {
     recipe: toRecipeSummary(recipe),

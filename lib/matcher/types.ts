@@ -57,7 +57,7 @@ export interface RecipeMatch {
   /** Weighted brewability score in the range [0, 1]. */
   score: number;
   ingredientMatches: IngredientMatch[];
-  /** Shortfalls to buy; empty for `brew_now`. */
+  /** Shortfalls to buy (never yeast); empty for `not_yet`. */
   shoppingList: ShoppingListItem[];
 }
 
