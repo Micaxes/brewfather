@@ -97,23 +97,73 @@ describe("scoreRecipe", () => {
     const matches = [
       mkMatch(base, "satisfied", 5), // critical 1.0 * 1
       mkMatch(hop, "short", 1), // high 0.7 * 0.5
-      mkMatch(yeast, "missing", 0), // critical 1.0 * 0
+      mkMatch(yeast, "missing", 0), // yeast: excluded from the score
     ];
-    // (1 + 0.35 + 0) / (1 + 0.7 + 1) = 1.35 / 2.7 = 0.5
-    expect(scoreRecipe(matches, new Set([base]))).toBe(0.5);
+    // (1 + 0.35) / (1 + 0.7) = 1.35 / 1.7 ~= 0.7941
+    expect(scoreRecipe(matches, new Set([base]))).toBe(0.7941);
   });
 
-  it("returns 0 for an empty ingredient list", () => {
+  it("ignores yeast and misc entirely (missing ones do not lower the score)", () => {
+    const base = ing("fermentable", "Pale", 5);
+    const hop = ing("hop", "Cascade", 2);
+    const stocked = [
+      mkMatch(base, "satisfied", 5),
+      mkMatch(hop, "satisfied", 2),
+      mkMatch(ing("yeast", "US-05", 1), "satisfied", 1),
+      mkMatch(ing("misc", "Whirlfloc", 1), "satisfied", 1),
+    ];
+    const unstocked = [
+      mkMatch(base, "satisfied", 5),
+      mkMatch(hop, "satisfied", 2),
+      mkMatch(ing("yeast", "US-05", 1), "missing", 0),
+      mkMatch(ing("misc", "Whirlfloc", 1), "missing", 0),
+    ];
+    expect(scoreRecipe(stocked, new Set([base]))).toBe(1);
+    expect(scoreRecipe(unstocked, new Set([base]))).toBe(1);
+  });
+
+  it("returns 0 for an empty ingredient list and for a yeast/misc-only recipe", () => {
     expect(scoreRecipe([], new Set())).toBe(0);
+    expect(
+      scoreRecipe([mkMatch(ing("yeast", "US-05", 1), "satisfied", 1)], new Set())
+    ).toBe(0);
   });
 });
 
 describe("bucketFor", () => {
-  const satisfied = mkMatch(ing("yeast", "US-05", 1), "satisfied", 1);
-  const missing = mkMatch(ing("misc", "Whirlfloc", 1), "missing", 0);
+  const satisfiedYeast = mkMatch(ing("yeast", "US-05", 1), "satisfied", 1);
+  const missingMisc = mkMatch(ing("misc", "Whirlfloc", 1), "missing", 0);
 
-  it("is brew_now only when all ingredients are satisfied", () => {
-    expect(bucketFor([satisfied], 1)).toBe("brew_now");
+  it("is brew_now when all scored (grain + hop) ingredients are satisfied", () => {
+    const matches = [
+      mkMatch(ing("fermentable", "Pale", 5), "satisfied", 5),
+      mkMatch(ing("hop", "Cascade", 50), "satisfied", 50),
+    ];
+    expect(bucketFor(matches, 1)).toBe("brew_now");
+  });
+
+  it("is brew_now even when a yeast or misc is missing", () => {
+    const matches = [
+      mkMatch(ing("fermentable", "Pale", 5), "satisfied", 5),
+      mkMatch(ing("hop", "Cascade", 50), "satisfied", 50),
+      mkMatch(ing("yeast", "US-05", 1), "missing", 0),
+      missingMisc,
+    ];
+    expect(bucketFor(matches, 1)).toBe("brew_now");
+  });
+
+  it("is not brew_now when a scored ingredient is short", () => {
+    const matches = [
+      mkMatch(ing("fermentable", "Pale", 5), "satisfied", 5),
+      mkMatch(ing("hop", "Cascade", 50), "short", 25),
+      mkMatch(ing("yeast", "US-05", 1), "satisfied", 1),
+    ];
+    expect(bucketFor(matches, ALMOST_SCORE_THRESHOLD)).toBe("almost");
+  });
+
+  it("falls back to all matches when there are no scored ingredients", () => {
+    expect(bucketFor([satisfiedYeast], 1)).toBe("brew_now");
+    expect(bucketFor([satisfiedYeast, missingMisc], 0)).toBe("not_yet");
   });
 
   it("is not_yet for an empty recipe", () => {
@@ -121,10 +171,12 @@ describe("bucketFor", () => {
   });
 
   it("is almost at or above the threshold, not_yet just below", () => {
-    expect(bucketFor([satisfied, missing], ALMOST_SCORE_THRESHOLD)).toBe("almost");
-    expect(bucketFor([satisfied, missing], ALMOST_SCORE_THRESHOLD - 0.001)).toBe(
-      "not_yet"
+    expect(bucketFor([satisfiedYeast, missingMisc], ALMOST_SCORE_THRESHOLD)).toBe(
+      "almost"
     );
+    expect(
+      bucketFor([satisfiedYeast, missingMisc], ALMOST_SCORE_THRESHOLD - 0.001)
+    ).toBe("not_yet");
   });
 });
 
@@ -137,6 +189,16 @@ describe("buildShoppingList", () => {
     ]);
     expect(list).toEqual([
       { name: "Citra", category: "hop", amount: 50, unit: "g" },
+      { name: "Whirlfloc", category: "misc", amount: 1, unit: "each" },
+    ]);
+  });
+
+  it("excludes yeast shortfalls but keeps misc ones", () => {
+    const list = buildShoppingList([
+      mkMatch(ing("yeast", "US-05", 1, "pkg"), "missing", 0),
+      mkMatch(ing("misc", "Whirlfloc", 1, "each"), "missing", 0),
+    ]);
+    expect(list).toEqual([
       { name: "Whirlfloc", category: "misc", amount: 1, unit: "each" },
     ]);
   });

@@ -32,13 +32,16 @@ describe("normalizeUnit", () => {
 
 describe("getUnitDimension", () => {
   const cases: Array<[string, ReturnType<typeof getUnitDimension>]> = [
-    ["kg", "mass"],
-    ["g", "mass"],
-    ["oz", "mass"],
-    ["l", "volume"],
-    ["ml", "volume"],
-    ["pkg", "count"],
+    ["kg", "measure"],
+    ["g", "measure"],
+    ["oz", "measure"],
+    ["l", "measure"],
+    ["ml", "measure"],
+    ["pkg", "measure"],
     ["each", "count"],
+    ["vial", "count"],
+    ["items", "unknown"],
+    ["tsp", "unknown"],
     ["sploops", "unknown"],
   ];
   it.each(cases)("%s -> %s", (unit, dimension) => {
@@ -56,13 +59,32 @@ describe("convertAmount", () => {
     expect(convertAmount(1.5, "l", "ml")).toBe(1500);
   });
 
+  it("treats g and ml (and kg and l) interchangeably", () => {
+    expect(convertAmount(250, "g", "ml")).toBe(250);
+    expect(convertAmount(250, "ml", "g")).toBe(250);
+    expect(convertAmount(1.5, "kg", "l")).toBe(1.5);
+    expect(convertAmount(2, "l", "kg")).toBe(2);
+    expect(convertAmount(1, "kg", "ml")).toBe(1000);
+  });
+
+  it("treats pkg as 12 g", () => {
+    expect(convertAmount(1, "pkg", "g")).toBe(12);
+    expect(convertAmount(24, "g", "pkg")).toBe(2);
+    expect(convertAmount(2, "pkg", "ml")).toBe(24);
+  });
+
   it("is a no-op for identical units", () => {
     expect(convertAmount(7, "g", "g")).toBe(7);
   });
 
   it("returns null across different dimensions", () => {
-    expect(convertAmount(1, "kg", "ml")).toBeNull();
-    expect(convertAmount(1, "pkg", "g")).toBeNull();
+    expect(convertAmount(1, "each", "g")).toBeNull();
+    expect(convertAmount(1, "pkg", "vial")).toBeNull();
+  });
+
+  it("treats items as unknown (never comparable to a real unit)", () => {
+    expect(convertAmount(1, "items", "g")).toBeNull();
+    expect(convertAmount(1, "items", "each")).toBeNull();
   });
 
   it("compares identical unknown units as-is but null for differing unknowns", () => {

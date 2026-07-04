@@ -8,48 +8,61 @@
 import type { Unit } from "@/lib/brewfather/types";
 
 /** The measurement dimension a unit belongs to. */
-export type UnitDimension = "mass" | "volume" | "count" | "unknown";
+export type UnitDimension = "measure" | "count" | "unknown";
 
 interface UnitConversion {
   dimension: UnitDimension;
-  /** Multiplier to the dimension's base unit (grams, milliliters, or each). */
+  /** Multiplier to the dimension's base unit (grams/milliliters, or each). */
   factor: number;
 }
 
 /**
- * Known units mapped to their dimension and conversion factor to a base unit
- * (mass->g, volume->ml, count->each). Brewfather is metric; imperial mass units
+ * Grams a dry yeast package is treated as (1 pkg = 12 g), so `pkg` needs and
+ * gram/milliliter stock compare directly.
+ */
+const PKG_GRAMS = 12;
+
+/**
+ * Known units mapped to their dimension and conversion factor to a base unit.
+ *
+ * Mass, volume, and the package family are deliberately collapsed into one
+ * `measure` dimension with base g = ml (brewing amounts are water-like, so
+ * 1 g = 1 ml and 1 kg = 1 l are close enough for stock comparisons) and
+ * 1 pkg = 12 g (a standard dry yeast pitch). `count` stays discrete for
+ * genuinely each-like units. `items`/`item` and `tsp`/`tbsp` are intentionally
+ * absent -> `unknown` (`items` rows are filtered out upstream; `tsp` only
+ * compares to an identical `tsp`). Brewfather is metric; imperial mass units
  * are included defensively for manually-entered items.
  */
 const UNIT_CONVERSIONS: Readonly<Record<string, UnitConversion>> = {
-  // mass -> grams
-  kg: { dimension: "mass", factor: 1000 },
-  kgs: { dimension: "mass", factor: 1000 },
-  g: { dimension: "mass", factor: 1 },
-  gr: { dimension: "mass", factor: 1 },
-  gram: { dimension: "mass", factor: 1 },
-  grams: { dimension: "mass", factor: 1 },
-  mg: { dimension: "mass", factor: 0.001 },
-  oz: { dimension: "mass", factor: 28.349523125 },
-  lb: { dimension: "mass", factor: 453.59237 },
-  lbs: { dimension: "mass", factor: 453.59237 },
-  // volume -> milliliters
-  l: { dimension: "volume", factor: 1000 },
-  liter: { dimension: "volume", factor: 1000 },
-  liters: { dimension: "volume", factor: 1000 },
-  litre: { dimension: "volume", factor: 1000 },
-  litres: { dimension: "volume", factor: 1000 },
-  ml: { dimension: "volume", factor: 1 },
-  // count -> each
+  // measure -> grams/milliliters (1 g = 1 ml)
+  kg: { dimension: "measure", factor: 1000 },
+  kgs: { dimension: "measure", factor: 1000 },
+  g: { dimension: "measure", factor: 1 },
+  gr: { dimension: "measure", factor: 1 },
+  gram: { dimension: "measure", factor: 1 },
+  grams: { dimension: "measure", factor: 1 },
+  mg: { dimension: "measure", factor: 0.001 },
+  oz: { dimension: "measure", factor: 28.349523125 },
+  lb: { dimension: "measure", factor: 453.59237 },
+  lbs: { dimension: "measure", factor: 453.59237 },
+  l: { dimension: "measure", factor: 1000 },
+  liter: { dimension: "measure", factor: 1000 },
+  liters: { dimension: "measure", factor: 1000 },
+  litre: { dimension: "measure", factor: 1000 },
+  litres: { dimension: "measure", factor: 1000 },
+  ml: { dimension: "measure", factor: 1 },
+  // package family -> 12 g each (dry pitch)
+  pkg: { dimension: "measure", factor: PKG_GRAMS },
+  pkgs: { dimension: "measure", factor: PKG_GRAMS },
+  package: { dimension: "measure", factor: PKG_GRAMS },
+  packages: { dimension: "measure", factor: PKG_GRAMS },
+  packet: { dimension: "measure", factor: PKG_GRAMS },
+  pack: { dimension: "measure", factor: PKG_GRAMS },
+  sachet: { dimension: "measure", factor: PKG_GRAMS },
+  // count -> each (a liquid-yeast `vial` will not satisfy a `pkg` need)
   each: { dimension: "count", factor: 1 },
   ea: { dimension: "count", factor: 1 },
-  pkg: { dimension: "count", factor: 1 },
-  pkgs: { dimension: "count", factor: 1 },
-  package: { dimension: "count", factor: 1 },
-  packages: { dimension: "count", factor: 1 },
-  packet: { dimension: "count", factor: 1 },
-  pack: { dimension: "count", factor: 1 },
-  sachet: { dimension: "count", factor: 1 },
   unit: { dimension: "count", factor: 1 },
   units: { dimension: "count", factor: 1 },
   vial: { dimension: "count", factor: 1 },

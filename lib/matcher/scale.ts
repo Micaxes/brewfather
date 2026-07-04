@@ -23,8 +23,8 @@ import type {
 import type { MatchMethod } from "@/lib/matcher/types";
 import {
   buildInventoryIndex,
-  collectIngredients,
   matchIngredient,
+  prepareIngredients,
 } from "@/lib/matcher/match";
 import { convertAmount } from "@/lib/matcher/normalize";
 
@@ -91,8 +91,10 @@ export function scaleRecipeToStock(
   const index = buildInventoryIndex(inventory, options.fuzzyThreshold);
   const warnings: string[] = [];
 
-  // Resolve each recipe ingredient to an inventory item (id then fuzzy name).
-  const resolved = collectIngredients(recipe).map((ingredient) => {
+  // Resolve each cleaned recipe ingredient (items rows dropped, duplicate
+  // lines pre-merged) to an inventory item (id then fuzzy name). Scale still
+  // considers yeast/misc — physical stock, not the match score.
+  const resolved = prepareIngredients(recipe).all.map((ingredient) => {
     const match = matchIngredient(ingredient, index);
     return {
       ingredient,

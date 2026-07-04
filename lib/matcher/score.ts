@@ -1,19 +1,23 @@
 /**
  * Brewability scoring, bucketing, and shopping-list construction (pure logic).
  *
- * The score is the weighted fraction of a recipe's requirements that are
+ * Only the ingredients that actually gate a brew day — fermentables and hops —
+ * feed the % score and the bucket. Yeast and misc are still matched and
+ * displayed with their have/need status, but a missing yeast or misc no longer
+ * drags the score down or blocks "Brew now".
+ *
+ * The score is the weighted fraction of the scored requirements that are
  * satisfied, weighted by ingredient importance:
- *   - yeast and base malt      -> critical
+ *   - base malt                -> critical
  *   - hops                     -> high
  *   - specialty fermentables   -> medium
- *   - miscs                    -> low
  *
  * Note: the frozen `RecipeIngredient` contract carries no hop `use`/`time`, so
  * bittering and aroma hops cannot be distinguished here; all hops are weighted
  * "high". Base vs specialty malt is inferred from each fermentable's share of
  * the grain bill.
  */
-import type { RecipeIngredient } from "@/lib/brewfather/types";
+import type { IngredientCategory, RecipeIngredient } from "@/lib/brewfather/types";
 import type {
   IngredientMatch,
   MatchBucket,
@@ -36,6 +40,14 @@ export const BASE_MALT_SHARE = 0.3;
 
 /** Minimum score for a not-fully-stocked recipe to be "almost" rather than "not_yet". */
 export const ALMOST_SCORE_THRESHOLD = 0.6;
+
+/** The ingredient categories that gate a brew day and therefore feed score/bucket. */
+const SCORED = new Set<IngredientCategory>(["fermentable", "hop"]);
+
+/** Whether a match participates in the % score and the bucket (grain + hops only). */
+export function isScored(match: IngredientMatch): boolean {
+  return SCORED.has(match.ingredient.category);
+}
 
 /**
  * Identify which fermentables are base malts: any at/above {@link BASE_MALT_SHARE}
@@ -87,7 +99,8 @@ export function classifyImportance(
 }
 
 /**
- * Weighted brewability score in [0, 1]. Satisfied ingredients count fully,
+ * Weighted brewability score in [0, 1] over the scored (fermentable + hop)
+ * matches only — yeast/misc are ignored. Satisfied ingredients count fully,
  * missing ones not at all, and short ones get partial credit (have/need).
  */
 export function scoreRecipe(
@@ -98,6 +111,7 @@ export function scoreRecipe(
   let totalWeight = 0;
 
   for (const match of ingredientMatches) {
+    if (!isScored(match)) continue;
     const weight =
       IMPORTANCE_WEIGHT[
         classifyImportance(match.ingredient, baseMalts.has(match.ingredient))
@@ -110,24 +124,37 @@ export function scoreRecipe(
   return roundTo(weightedSum / totalWeight, 4);
 }
 
-/** Bucket a recipe from its per-ingredient matches and weighted score. */
+/**
+ * Bucket a recipe from its per-ingredient matches and weighted score.
+ * "Brew now" means every *scored* (fermentable + hop) match is satisfied — a
+ * missing yeast or misc does not block it, keeping the bucket consistent with
+ * the score (a 100% recipe is always brew_now). For a recipe with no scored
+ * ingredients at all, fall back to every match being satisfied.
+ */
 export function bucketFor(
   ingredientMatches: IngredientMatch[],
   score: number
 ): MatchBucket {
   if (ingredientMatches.length === 0) return "not_yet";
-  if (ingredientMatches.every((m) => m.status === "satisfied")) {
+  const scored = ingredientMatches.filter(isScored);
+  const gating = scored.length > 0 ? scored : ingredientMatches;
+  if (gating.every((m) => m.status === "satisfied")) {
     return "brew_now";
   }
   return score >= ALMOST_SCORE_THRESHOLD ? "almost" : "not_yet";
 }
 
-/** Build a shopping list of the shortfalls (missing + short) for a recipe. */
+/**
+ * Build a shopping list of the shortfalls (missing + short) for a recipe:
+ * fermentables, hops, and miscs — never yeast (not part of the buy-list).
+ */
 export function buildShoppingList(
   ingredientMatches: IngredientMatch[]
 ): ShoppingListItem[] {
   return ingredientMatches
-    .filter((match) => match.shortfall > 0)
+    .filter(
+      (match) => match.ingredient.category !== "yeast" && match.shortfall > 0
+    )
     .map((match) => ({
       name: match.ingredient.name,
       category: match.ingredient.category,

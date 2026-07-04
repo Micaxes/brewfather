@@ -72,8 +72,8 @@ describe("scaleRecipeToStock", () => {
     expect(pilsner.scaledAmount).toBe(7.5); // 5kg * 1.5
   });
 
-  it("sums shared stock across lines resolving to the same item", () => {
-    // One hop used twice; combined draw is 20 + 30 = 50 g against 50 g of stock.
+  it("pre-merges duplicate lines into one scaled row with the summed need", () => {
+    // One hop used twice; the cleaned pipeline merges 20 + 30 into one 50 g row.
     const r = recipe({
       batchSize: 20,
       hops: [
@@ -86,8 +86,47 @@ describe("scaleRecipeToStock", () => {
     const result = scaleRecipeToStock(r, inventory);
 
     expect(result.factor).toBe(1); // 50 / (20 + 30), NOT 50/30
-    expect(result.ingredients.every((i) => i.limiting)).toBe(true);
+    expect(result.ingredients).toHaveLength(1);
+    expect(result.ingredients[0]!.ingredient.amount).toBe(50);
+    expect(result.ingredients[0]!.scaledAmount).toBe(50);
+    expect(result.ingredients[0]!.limiting).toBe(true);
     expect(result.limitedBy).toEqual(["Cascade"]);
+  });
+
+  it("sums shared stock across different-name lines resolving to the same item", () => {
+    // Distinct names survive dedup, but both resolve to one 50 g stock row.
+    const r = recipe({
+      batchSize: 20,
+      hops: [
+        ing({ id: "", name: "Cascade", amount: 20, unit: "g" }),
+        ing({ id: "", name: "Cascade (US)", amount: 30, unit: "g" }),
+      ],
+    });
+    const inventory = [inv({ id: "h1", name: "Cascade", amount: 50, unit: "g" })];
+
+    const result = scaleRecipeToStock(r, inventory);
+
+    expect(result.factor).toBe(1); // 50 / (20 + 30), NOT 50/30
+    expect(result.ingredients).toHaveLength(2);
+    expect(result.ingredients.every((i) => i.limiting)).toBe(true);
+  });
+
+  it("drops items-unit rows before scaling", () => {
+    const r = recipe({
+      batchSize: 20,
+      hops: [ing({ id: "h1", name: "Cascade", amount: 50, unit: "g" })],
+      miscs: [
+        ing({ id: "m1", name: "Electricity", category: "misc", amount: 1, unit: "items" }),
+      ],
+    });
+    const inventory = [inv({ id: "h1", name: "Cascade", amount: 100, unit: "g" })];
+
+    const result = scaleRecipeToStock(r, inventory);
+
+    // "Electricity" neither blocks (missing) nor appears in the scaled rows.
+    expect(result.factor).toBe(2);
+    expect(result.ingredients.map((i) => i.ingredient.name)).toEqual(["Cascade"]);
+    expect(result.warnings).toEqual([]);
   });
 
   it("converts compatible units before comparing (g need vs kg stock)", () => {
@@ -129,18 +168,18 @@ describe("scaleRecipeToStock", () => {
     const r = recipe({
       batchSize: 20,
       hops: [ing({ id: "h1", name: "Cascade", amount: 50, unit: "g" })],
-      // misc measured by volume but stocked by mass -> incomparable
-      miscs: [ing({ id: "m1", name: "Lactic Acid", category: "misc", amount: 10, unit: "ml" })],
+      // misc measured in teaspoons but stocked by mass -> incomparable
+      miscs: [ing({ id: "m1", name: "Yeast Nutrient", category: "misc", amount: 2, unit: "tsp" })],
     });
     const inventory = [
       inv({ id: "h1", name: "Cascade", amount: 100, unit: "g" }), // 2x
-      inv({ id: "m1", name: "Lactic Acid", category: "misc", amount: 500, unit: "g" }),
+      inv({ id: "m1", name: "Yeast Nutrient", category: "misc", amount: 500, unit: "g" }),
     ];
 
     const result = scaleRecipeToStock(r, inventory);
 
-    expect(result.factor).toBe(2); // limited by Cascade; lactic acid excluded
-    expect(result.warnings.some((w) => w.includes("Lactic Acid"))).toBe(true);
+    expect(result.factor).toBe(2); // limited by Cascade; yeast nutrient excluded
+    expect(result.warnings.some((w) => w.includes("Yeast Nutrient"))).toBe(true);
   });
 
   it("propagates how each ingredient was matched (id vs fuzzy name)", () => {

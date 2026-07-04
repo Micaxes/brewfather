@@ -34,7 +34,10 @@ describe("matchRecipes (integration over fixtures)", () => {
   it("buckets a nearly-stocked recipe as almost with a correct shopping list", () => {
     const ipa = byId(run().candidates, "r-citra-ipa");
     expect(ipa.bucket).toBe("almost");
+    // Grain + hops only: (1 + 0.4 + 0.7 * (100/150)) / 2.1 ~= 0.8889.
+    expect(ipa.score).toBe(0.8889);
     expect(ipa.score).toBeGreaterThanOrEqual(0.6);
+    // Misc shortfalls are kept on the buy-list; yeast never appears.
     expect(ipa.shoppingList).toEqual([
       { name: "Citra", category: "hop", amount: 50, unit: "g" },
       { name: "Whirlfloc", category: "misc", amount: 1, unit: "each" },
