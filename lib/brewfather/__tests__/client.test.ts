@@ -1,7 +1,7 @@
 /**
  * @vitest-environment node
  */
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
   BrewfatherAuthError,
@@ -30,10 +30,73 @@ describe("buildAuthHeader", () => {
 });
 
 describe("createBrewfatherClient", () => {
+  afterEach(() => {
+    vi.unstubAllEnvs();
+  });
+
   it("throws BrewfatherAuthError when credentials are missing", () => {
     expect(() => createBrewfatherClient({ userId: "", apiKey: "" })).toThrow(
       BrewfatherAuthError
     );
+  });
+
+  it("never silently falls back to BF_* env vars (request paths)", () => {
+    vi.stubEnv("BF_USER_ID", "env-user");
+    vi.stubEnv("BF_API_KEY", "env-key");
+
+    // Even with the shared dev key configured, a call without explicit
+    // credentials must fail — no request path may serve the env account.
+    expect(() => createBrewfatherClient()).toThrow(BrewfatherAuthError);
+    expect(() => createBrewfatherClient({})).toThrow(BrewfatherAuthError);
+  });
+
+  it("uses env credentials only via the explicit allowEnvFallback opt-in", async () => {
+    vi.stubEnv("BF_USER_ID", "env-user");
+    vi.stubEnv("BF_API_KEY", "env-key");
+    const fetchImpl = vi.fn().mockResolvedValue(jsonResponse([]));
+
+    const client = createBrewfatherClient({ allowEnvFallback: true, fetchImpl });
+    await client.getRecipes();
+
+    const init = fetchImpl.mock.calls[0]![1];
+    expect(init.headers.Authorization).toBe(buildAuthHeader("env-user", "env-key"));
+  });
+
+  it("explicit credentials win over the env even with allowEnvFallback", async () => {
+    vi.stubEnv("BF_USER_ID", "env-user");
+    vi.stubEnv("BF_API_KEY", "env-key");
+    const fetchImpl = vi.fn().mockResolvedValue(jsonResponse([]));
+
+    const client = createBrewfatherClient({
+      userId: "u",
+      apiKey: "k",
+      allowEnvFallback: true,
+      fetchImpl,
+    });
+    await client.getRecipes();
+
+    const init = fetchImpl.mock.calls[0]![1];
+    expect(init.headers.Authorization).toBe(buildAuthHeader("u", "k"));
+  });
+
+  it("ping makes exactly one single-item inventory request", async () => {
+    const fetchImpl = vi.fn().mockResolvedValue(jsonResponse([]));
+    const client = createBrewfatherClient({ userId: "u", apiKey: "k", fetchImpl });
+
+    await client.ping();
+
+    expect(fetchImpl).toHaveBeenCalledTimes(1);
+    const url = fetchImpl.mock.calls[0]![0] as string;
+    expect(url).toContain("/v2/inventory/fermentables?limit=1");
+  });
+
+  it("ping surfaces the HTTP status of an auth failure", async () => {
+    const fetchImpl = vi
+      .fn()
+      .mockResolvedValue(new Response("", { status: 401, statusText: "Unauthorized" }));
+    const client = createBrewfatherClient({ userId: "u", apiKey: "bad", fetchImpl });
+
+    await expect(client.ping()).rejects.toMatchObject({ status: 401 });
   });
 
   it("sends Basic auth and Accept headers on requests", async () => {

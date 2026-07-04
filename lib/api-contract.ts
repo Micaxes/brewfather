@@ -31,6 +31,17 @@ export type { RecipeMatch } from "@/lib/matcher/types";
  */
 export const SYNC_COOLDOWN_MS = 60 * 1000;
 
+/**
+ * Classification of an upstream Brewfather failure (#23), carried on failed
+ * responses so the client can drive the right UI:
+ *
+ * - `"reconnect"` — Brewfather rejected the stored key (401/403: revoked,
+ *   expired, or insufficient scope). Prompt the user to reconnect in Settings.
+ * - `"rate_limited"` — Brewfather returned 429. Wait it out; the key is fine.
+ * - `"upstream"` — transient upstream/network trouble. Plain retry.
+ */
+export type UpstreamErrorCode = "reconnect" | "rate_limited" | "upstream";
+
 /** Response body of `GET /api/brew-candidates`. */
 export interface BrewCandidatesResponse extends MatchResult {
   /**
@@ -45,4 +56,10 @@ export interface BrewCandidatesResponse extends MatchResult {
    * still carries the (cached) candidates, so this is a signal, not an error.
    */
   cooldownSeconds?: number;
+  /**
+   * Present only on failed (non-2xx) responses: classifies the upstream
+   * Brewfather failure so the dashboard shows a reconnect prompt / wait
+   * notice / retry hint instead of one generic error.
+   */
+  errorCode?: UpstreamErrorCode;
 }

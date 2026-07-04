@@ -1,11 +1,16 @@
 /**
  * Server-only Brewfather API client.
  *
- * Talks to https://api.brewfather.app using HTTP Basic auth built from
- * `BF_USER_ID` / `BF_API_KEY`. The key is read from the environment, used only
- * to build the `Authorization` header, and never returned to callers. Import
- * this module from server code only (route handlers); a runtime guard throws if
- * it is ever evaluated in the browser.
+ * Talks to https://api.brewfather.app using HTTP Basic auth built from the
+ * caller-supplied per-user credentials (Vault-decrypted by the BFF). The key is
+ * used only to build the `Authorization` header and never returned to callers.
+ * Import this module from server code only (route handlers); a runtime guard
+ * throws if it is ever evaluated in the browser.
+ *
+ * There is deliberately NO silent `process.env` fallback: every request path
+ * must pass the signed-in user's own credentials explicitly. The only
+ * exception is `allowEnvFallback`, an explicit opt-in for offline dev scripts
+ * (`scripts/match-spike.ts`).
  *
  * Responses are normalized to the frozen contracts in `lib/brewfather/types.ts`
  * so the matcher (Task 3) and UI (Task 4) never see raw upstream payloads.
@@ -53,10 +58,10 @@ export class BrewfatherError extends Error {
   }
 }
 
-/** Thrown when `BF_USER_ID` / `BF_API_KEY` are not configured. */
+/** Thrown when no Brewfather credentials were provided to the client. */
 export class BrewfatherAuthError extends BrewfatherError {
   constructor(
-    message = "Brewfather credentials are not configured (set BF_USER_ID and BF_API_KEY)."
+    message = "Brewfather credentials are required (pass the user's userId and apiKey)."
   ) {
     super(message);
     this.name = "BrewfatherAuthError";
@@ -64,10 +69,17 @@ export class BrewfatherAuthError extends BrewfatherError {
 }
 
 export interface BrewfatherClientOptions {
-  /** Defaults to `process.env.BF_USER_ID`. */
+  /** Brewfather user id of the account to read from. Required in request paths. */
   userId?: string;
-  /** Defaults to `process.env.BF_API_KEY`. */
+  /** Brewfather API key for that account. Required in request paths. */
   apiKey?: string;
+  /**
+   * Explicit opt-in to fall back to `process.env.BF_USER_ID` / `BF_API_KEY`
+   * when `userId`/`apiKey` are not passed. For offline dev scripts ONLY
+   * (`scripts/match-spike.ts`) — never set this in a request path, or a shared
+   * dev key could serve one account's data to every user.
+   */
+  allowEnvFallback?: boolean;
   /** Defaults to https://api.brewfather.app. */
   baseUrl?: string;
   /** Injectable fetch (defaults to the global `fetch`). */
@@ -92,6 +104,13 @@ export interface BrewfatherClient {
   getRecipeDetail(id: string): Promise<RecipeDetail>;
   getRecipeDetails(): Promise<RecipeDetail[]>;
   getData(): Promise<BrewfatherData>;
+  /**
+   * Cheapest possible authenticated read: a single one-item request to one
+   * inventory endpoint. Used to validate credentials without pulling full
+   * data. Resolves on success; throws {@link BrewfatherError} (carrying the
+   * HTTP status) on auth failure, rate limiting, or upstream errors.
+   */
+  ping(): Promise<void>;
 }
 
 interface RequestContext {
@@ -240,9 +259,17 @@ async function getData(ctx: RequestContext): Promise<BrewfatherData> {
   return { inventory, recipes };
 }
 
+async function ping(ctx: RequestContext): Promise<void> {
+  // One item from one endpoint — the response body is irrelevant, only that
+  // Brewfather accepted the credentials.
+  await requestJson("/v2/inventory/fermentables?limit=1", ctx);
+}
+
 /**
- * Create a Brewfather client. Reads credentials from the environment unless
- * overridden. Throws {@link BrewfatherAuthError} when credentials are missing.
+ * Create a Brewfather client for the given per-user credentials. Throws
+ * {@link BrewfatherAuthError} when credentials are missing. The env-var
+ * fallback (`BF_USER_ID` / `BF_API_KEY`) is gated behind the explicit
+ * `allowEnvFallback` opt-in used only by offline dev scripts.
  */
 export function createBrewfatherClient(
   options: BrewfatherClientOptions = {}
@@ -252,8 +279,10 @@ export function createBrewfatherClient(
       "createBrewfatherClient is server-only and must not run in the browser."
     );
   }
-  const userId = options.userId ?? process.env.BF_USER_ID ?? "";
-  const apiKey = options.apiKey ?? process.env.BF_API_KEY ?? "";
+  const envUserId = options.allowEnvFallback ? process.env.BF_USER_ID : undefined;
+  const envApiKey = options.allowEnvFallback ? process.env.BF_API_KEY : undefined;
+  const userId = options.userId ?? envUserId ?? "";
+  const apiKey = options.apiKey ?? envApiKey ?? "";
   if (!userId || !apiKey) {
     throw new BrewfatherAuthError();
   }
@@ -271,6 +300,7 @@ export function createBrewfatherClient(
     getRecipeDetail: (id: string) => getRecipeDetail(ctx, id),
     getRecipeDetails: () => getRecipeDetails(ctx),
     getData: () => getData(ctx),
+    ping: () => ping(ctx),
   };
 }
 
