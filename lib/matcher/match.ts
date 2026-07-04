@@ -21,7 +21,8 @@ import type {
   RecipeIngredient,
 } from "@/lib/brewfather/types";
 import type { IngredientMatch, MatchStatus } from "@/lib/matcher/types";
-import { convertAmount, normalizeName } from "@/lib/matcher/normalize";
+import type { Unit } from "@/lib/brewfather/types";
+import { convertAmount, normalizeName, normalizeUnit } from "@/lib/matcher/normalize";
 
 /**
  * Default Fuse.js score threshold for the normalized-name fuzzy fallback.
@@ -64,6 +65,9 @@ export function buildInventoryIndex(
   const itemsByCategory = new Map<IngredientCategory, IndexedItem[]>();
 
   for (const item of inventory) {
+    // Junk rows measured in "items" (e.g. "Electricity") are never sought by a
+    // cleaned recipe line; skip them so nothing can fuzzy-resolve to one.
+    if (isItemsUnit(item.unit)) continue;
     if (item.id && !byId.has(item.id)) {
       byId.set(item.id, item);
     }
@@ -128,15 +132,31 @@ export function matchIngredient(
   return buildIngredientMatch(ingredient, matched, matchedBy, reservations);
 }
 
-/** Match every ingredient of a recipe (fermentables, hops, yeasts, miscs). */
+/**
+ * Match a list of (already prepared) ingredients against the inventory,
+ * sharing one reservations map so lines resolving to the same inventory item
+ * see the stock remaining after earlier lines.
+ */
+export function matchIngredients(
+  ingredients: RecipeIngredient[],
+  index: InventoryIndex
+): IngredientMatch[] {
+  const reservations: Reservations = new Map();
+  return ingredients.map((ingredient) =>
+    matchIngredient(ingredient, index, reservations)
+  );
+}
+
+/**
+ * Match every ingredient of a recipe (fermentables, hops, yeasts, miscs)
+ * through the cleaned pipeline. Back-compat wrapper over
+ * {@link prepareIngredients} + {@link matchIngredients}.
+ */
 export function matchRecipeIngredients(
   recipe: RecipeDetail,
   index: InventoryIndex
 ): IngredientMatch[] {
-  const reservations: Reservations = new Map();
-  return collectIngredients(recipe).map((ingredient) =>
-    matchIngredient(ingredient, index, reservations)
-  );
+  return matchIngredients(prepareIngredients(recipe).all, index);
 }
 
 /** Flatten a recipe's ingredient arrays into a single ordered list. */
@@ -147,6 +167,80 @@ export function collectIngredients(recipe: RecipeDetail): RecipeIngredient[] {
     ...recipe.yeasts,
     ...recipe.miscs,
   ];
+}
+
+/** Whether a unit is Brewfather's junk `items` pseudo-unit. */
+export function isItemsUnit(unit: Unit): boolean {
+  const normalized = normalizeUnit(unit);
+  return normalized === "items" || normalized === "item";
+}
+
+/** A recipe's ingredients after cleaning (drop `items` rows, merge duplicates). */
+export interface PreparedIngredients {
+  /** Every cleaned ingredient, in first-seen recipe order. */
+  all: RecipeIngredient[];
+  /** The fermentable subset of `all` (same references, for base-malt math). */
+  fermentables: RecipeIngredient[];
+}
+
+/**
+ * The cleaned ingredient pipeline: flatten the recipe, drop junk `items`-unit
+ * rows (non-ingredients like "Electricity"), and merge duplicate lines (the
+ * same hop listed for bittering/flavor/aroma, water salts added at mash and
+ * sparge) so `need` reflects the recipe's true total per ingredient.
+ */
+export function prepareIngredients(recipe: RecipeDetail): PreparedIngredients {
+  const kept = collectIngredients(recipe).filter(
+    (ingredient) => !isItemsUnit(ingredient.unit)
+  );
+  const all = mergeDuplicates(kept);
+  return {
+    all,
+    fermentables: all.filter((i) => i.category === "fermentable"),
+  };
+}
+
+/**
+ * Merge duplicate ingredient lines (same category + normalized name) into one,
+ * summing amounts. The first occurrence sets the canonical unit and name and
+ * keeps the first non-empty id (so id-match still fires); later lines are
+ * converted into that unit and added. A later line whose unit is incomparable
+ * with every accumulated line of its name (e.g. g vs tsp) stays separate —
+ * never silently dropped or wrong-summed. First-seen order is preserved and
+ * the input ingredients are never mutated.
+ */
+function mergeDuplicates(ingredients: RecipeIngredient[]): RecipeIngredient[] {
+  const byKey = new Map<string, RecipeIngredient[]>();
+  const merged: RecipeIngredient[] = [];
+
+  for (const line of ingredients) {
+    const key = `${line.category}\0${normalizeName(line.name)}`;
+    const accumulated = byKey.get(key);
+
+    if (accumulated) {
+      let absorbed = false;
+      for (const acc of accumulated) {
+        const converted = convertAmount(line.amount, line.unit, acc.unit);
+        if (converted !== null) {
+          acc.amount += converted;
+          if (!acc.id && line.id) acc.id = line.id;
+          absorbed = true;
+          break;
+        }
+      }
+      if (absorbed) continue;
+    }
+
+    const copy: RecipeIngredient = { ...line };
+    merged.push(copy);
+    if (accumulated) {
+      accumulated.push(copy);
+    } else {
+      byKey.set(key, [copy]);
+    }
+  }
+
+  return merged;
 }
 
 function buildIngredientMatch(
