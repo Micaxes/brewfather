@@ -1,7 +1,11 @@
 import { AlertCircle, Beer } from "lucide-react";
 import Link from "next/link";
 
-import type { BrewCandidatesResponse, RecipeMatch } from "@/lib/api-contract";
+import type {
+  BrewCandidatesResponse,
+  RecipeMatch,
+  UpstreamErrorCode,
+} from "@/lib/api-contract";
 import type { MatchBucket } from "@/lib/matcher/types";
 import { BUCKET_ORDER } from "@/components/brew/buckets";
 import { BucketSection } from "@/components/brew/BucketSection";
@@ -9,7 +13,7 @@ import { SyncButton, type SyncStatus } from "@/components/brew/SyncButton";
 
 export type DashboardState =
   | { status: "loading" }
-  | { status: "error"; message?: string }
+  | { status: "error"; message?: string; errorCode?: UpstreamErrorCode }
   | { status: "ready"; data: BrewCandidatesResponse };
 
 /** The full "what can I brew now?" dashboard, across loading/error/empty/ready states. */
@@ -24,7 +28,9 @@ export function DashboardView({
   return (
     <main className="mx-auto flex w-full max-w-5xl animate-[fadein_0.4s_ease] flex-col gap-7">
       {state.status === "loading" ? <LoadingState /> : null}
-      {state.status === "error" ? <ErrorState message={state.message} /> : null}
+      {state.status === "error" ? (
+        <ErrorState message={state.message} errorCode={state.errorCode} />
+      ) : null}
       {state.status === "ready" ? (
         <ReadyState data={state.data} sync={sync} />
       ) : null}
@@ -146,7 +152,44 @@ function LoadingState() {
   );
 }
 
-function ErrorState({ message }: { message?: string }) {
+function ErrorState({
+  message,
+  errorCode,
+}: {
+  message?: string;
+  errorCode?: UpstreamErrorCode;
+}) {
+  // A revoked/expired key is not a transient failure — prompt the fix
+  // (reconnect in Settings) instead of a generic "try again".
+  if (errorCode === "reconnect") {
+    return (
+      <div
+        role="alert"
+        className="flex items-start gap-3 rounded-[20px] border border-danger/25 bg-danger/[0.06] p-5 text-sm backdrop-blur-md"
+      >
+        <AlertCircle className="size-5 flex-none text-danger" aria-hidden="true" />
+        <div>
+          <div className="font-semibold">Reconnect your Brewfather account</div>
+          <p className="mt-0.5 text-dim">
+            Brewfather rejected your API key — it may have been revoked or
+            expired. Reconnect it in{" "}
+            <Link
+              href="/dashboard/settings"
+              className="font-semibold text-teal-bright underline"
+            >
+              Settings
+            </Link>{" "}
+            to load your brew board again.
+          </p>
+        </div>
+      </div>
+    );
+  }
+
+  const fallback =
+    errorCode === "rate_limited"
+      ? "Brewfather is rate-limiting requests right now. Wait a few minutes, then reload."
+      : "Something went wrong contacting Brewfather. Please try again.";
   return (
     <div
       role="alert"
@@ -155,10 +198,7 @@ function ErrorState({ message }: { message?: string }) {
       <AlertCircle className="size-5 flex-none text-danger" aria-hidden="true" />
       <div>
         <div className="font-semibold">Couldn’t load your brew board</div>
-        <p className="mt-0.5 text-dim">
-          {message ??
-            "Something went wrong contacting Brewfather. Please try again."}
-        </p>
+        <p className="mt-0.5 text-dim">{message ?? fallback}</p>
       </div>
     </div>
   );

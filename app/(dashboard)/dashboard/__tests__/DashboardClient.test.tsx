@@ -62,6 +62,51 @@ describe("DashboardClient", () => {
     expect(await screen.findByRole("alert")).toBeInTheDocument();
   });
 
+  it("prompts a reconnect (with a Settings link) when the initial load reports a revoked key", async () => {
+    stubFetch(
+      jsonResponse(
+        {
+          candidates: [],
+          generatedAt: new Date().toISOString(),
+          warnings: ["Brewfather rejected your API key."],
+          syncedAt: null,
+          errorCode: "reconnect",
+        } satisfies BrewCandidatesResponse,
+        { status: 502 }
+      )
+    );
+
+    render(<DashboardClient />);
+
+    const alert = await screen.findByRole("alert");
+    expect(alert).toHaveTextContent(/reconnect your brewfather account/i);
+    expect(screen.getByRole("link", { name: /settings/i })).toHaveAttribute(
+      "href",
+      "/dashboard/settings"
+    );
+  });
+
+  it("shows the rate-limit wait notice when the initial load is throttled upstream", async () => {
+    stubFetch(
+      jsonResponse(
+        {
+          candidates: [],
+          generatedAt: new Date().toISOString(),
+          warnings: [],
+          syncedAt: null,
+          errorCode: "rate_limited",
+        } satisfies BrewCandidatesResponse,
+        { status: 429 }
+      )
+    );
+
+    render(<DashboardClient />);
+
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      /rate-limiting/i
+    );
+  });
+
   it("Sync now re-fetches with ?refresh=true and updates the dashboard in place", async () => {
     const refreshed: BrewCandidatesResponse = {
       ...mockBrewCandidates,
@@ -119,6 +164,36 @@ describe("DashboardClient", () => {
     expect(
       screen.queryByText(/couldn’t load your brew board/i)
     ).not.toBeInTheDocument();
+  });
+
+  it("shows a reconnect-specific sync error and keeps last-good data when the key is rejected mid-session", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(jsonResponse(mockBrewCandidates))
+      .mockResolvedValueOnce(
+        jsonResponse(
+          {
+            candidates: [],
+            generatedAt: new Date().toISOString(),
+            warnings: [],
+            syncedAt: null,
+            errorCode: "reconnect",
+          } satisfies BrewCandidatesResponse,
+          { status: 502 }
+        )
+      );
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(<DashboardClient />);
+    fireEvent.click(await screen.findByRole("button", { name: /sync now/i }));
+
+    // Failure-specific inline copy: reconnect, not a generic retry…
+    const alert = await screen.findByRole("alert");
+    expect(alert).toHaveTextContent(/reconnect it in settings/i);
+    // …and the last-good candidates stay on screen.
+    expect(
+      screen.getByRole("heading", { level: 3, name: "American Pale Ale" })
+    ).toBeInTheDocument();
   });
 
   it("shows the cooldown instead of claiming Synced when the server rejects the refresh", async () => {
