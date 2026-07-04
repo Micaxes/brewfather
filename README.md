@@ -1,9 +1,10 @@
 # Brewable
 
-A local, single-user web app that answers **"what can I brew now?"** It connects
-to your [Brewfather](https://brewfather.app) account with a read-only API key,
-pulls your live **inventory** and **saved recipes**, runs a deterministic
-**matching engine**, and renders a ranked dashboard:
+A multi-user web app that answers **"what can I brew now?"** Each signed-in
+user connects their own [Brewfather](https://brewfather.app) account with a
+read-only API key (stored encrypted in Supabase Vault); Brewable pulls their
+live **inventory** and **saved recipes**, runs a deterministic **matching
+engine**, and renders a ranked dashboard:
 
 - ✅ **Brew now** — everything a recipe needs is in stock
 - 🟡 **Almost** — a short shopping list away (with the exact shortfalls)
@@ -23,14 +24,18 @@ Brewfather API ──> /api/brew-candidates (server) ──> matching engine ─
 ```
 
 - **Next.js (App Router) + TypeScript**, **Tailwind + shadcn/ui**.
-- The Brewfather API key is used **only server-side** (BFF route handlers); it
-  never reaches the browser.
-- Matching is **rules-based and deterministic** — no database, no auth, no AI.
+- Every user's Brewfather API key is **verified against Brewfather before it is
+  stored**, encrypted at rest in **Supabase Vault**, and used **only
+  server-side** (BFF route handlers) — it never reaches the browser.
+- Matching is **rules-based and deterministic** — no AI.
 
 ## Prerequisites
 
 - **Node.js 20+** and npm.
-- A **Brewfather account with Premium** (required to mint an API key).
+- A **Supabase project** (auth + Vault-encrypted per-user keys + cache).
+- Each user needs a **Brewfather account with Premium** (required to mint an
+  API key) — but that key is entered in the app's Settings page, not in env
+  vars.
 
 ## Setup
 
@@ -40,24 +45,17 @@ Brewfather API ──> /api/brew-candidates (server) ──> matching engine ─
    npm install
    ```
 
-2. Create a Brewfather API key: in Brewfather, go to **Settings → API**, then
-   generate a key with **read** access to `recipes` and `inventory`.
+2. Configure Supabase (the only required environment): copy `.env.example` to
+   `.env.local` and fill in the `NEXT_PUBLIC_SUPABASE_*` / `SUPABASE_*` values
+   (see [Authentication](#authentication-v1) below).
 
-3. Configure your environment. Copy the example file and fill in your values:
+3. Apply the SQL migrations in `supabase/migrations/` to your project (in
+   order) — they create the Vault-backed credential store, the per-user data
+   cache, and their RLS policies.
 
-   ```bash
-   cp .env.example .env
-   ```
-
-   ```ini
-   # .env
-   BF_USER_ID=your-brewfather-user-id
-   BF_API_KEY=your-brewfather-api-key
-   ```
-
-   `.env` is gitignored — never commit your real credentials. If the variables
-   are missing, the dashboard still loads and shows an onboarding hint instead of
-   any candidates.
+> **Dev scripts only:** `BF_USER_ID` / `BF_API_KEY` in `.env` are read solely
+> by the offline matching spike (`npm run spike`). The app itself never uses
+> them — every request runs with the signed-in user's own key from Vault.
 
 ## Run
 
@@ -65,10 +63,11 @@ Brewfather API ──> /api/brew-candidates (server) ──> matching engine ─
 npm run dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) and follow the link to the
-dashboard at [http://localhost:3000/dashboard](http://localhost:3000/dashboard).
-With your key set, you will see your saved recipes ranked by what you can brew
-right now.
+Open [http://localhost:3000](http://localhost:3000), create an account (or sign
+in), then connect your Brewfather key under **Dashboard → Settings** — the page
+walks you through generating a read-only key (Brewfather **Settings → API**)
+and verifies it against Brewfather before saving. Your saved recipes then show
+up ranked by what you can brew right now.
 
 ## Authentication (v1)
 
