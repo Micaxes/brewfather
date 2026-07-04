@@ -7,6 +7,7 @@ import type { BrewCandidatesResponse } from "@/lib/api-contract";
 
 export const mockBrewCandidates: BrewCandidatesResponse = {
   generatedAt: "2026-06-27T12:00:00.000Z",
+  syncedAt: "2026-06-27T11:58:00.000Z",
   warnings: [],
   candidates: [
     {

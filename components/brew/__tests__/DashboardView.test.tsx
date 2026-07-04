@@ -1,11 +1,18 @@
 import { cleanup, render, screen } from "@testing-library/react";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import type { BrewCandidatesResponse, RecipeMatch } from "@/lib/api-contract";
+import type { SyncStatus } from "@/components/brew/SyncButton";
 import { DashboardView } from "@/components/brew/DashboardView";
 
 // vitest is configured without globals, so register RTL cleanup explicitly.
 afterEach(cleanup);
+
+const idleSync = (): SyncStatus => ({
+  syncing: false,
+  error: null,
+  onSync: vi.fn(),
+});
 
 function recipeMatch(
   id: string,
@@ -24,6 +31,7 @@ function recipeMatch(
 
 const populated: BrewCandidatesResponse = {
   generatedAt: "2026-06-27T12:00:00.000Z",
+  syncedAt: "2026-06-27T11:55:00.000Z",
   warnings: [],
   candidates: [
     recipeMatch("r-apa", "American Pale Ale", "brew_now", {
@@ -115,6 +123,7 @@ describe("DashboardView", () => {
   it("shows the onboarding empty state when there are no candidates", () => {
     const empty: BrewCandidatesResponse = {
       generatedAt: "2026-06-27T12:00:00.000Z",
+      syncedAt: null,
       warnings: [],
       candidates: [],
     };
@@ -148,6 +157,65 @@ describe("DashboardView", () => {
     render(<DashboardView state={{ status: "ready", data: withWarning }} />);
     expect(
       screen.getByText(/could not compare units for lactose/i)
+    ).toBeInTheDocument();
+  });
+
+  it("renders the Sync now button and Last synced line in the ready header", () => {
+    render(
+      <DashboardView state={{ status: "ready", data: populated }} sync={idleSync()} />
+    );
+
+    expect(screen.getByRole("button", { name: /sync now/i })).toBeEnabled();
+    expect(screen.getByText(/last synced/i)).toBeInTheDocument();
+  });
+
+  it("disables the sync button and marks it busy while syncing", () => {
+    render(
+      <DashboardView
+        state={{ status: "ready", data: populated }}
+        sync={{ ...idleSync(), syncing: true }}
+      />
+    );
+
+    const button = screen.getByRole("button", { name: /syncing/i });
+    expect(button).toBeDisabled();
+    expect(button).toHaveAttribute("aria-busy", "true");
+  });
+
+  it("omits the sync button on the not-connected onboarding empty state", () => {
+    const empty: BrewCandidatesResponse = {
+      generatedAt: "2026-06-27T12:00:00.000Z",
+      syncedAt: null,
+      warnings: [],
+      candidates: [],
+    };
+    render(
+      <DashboardView state={{ status: "ready", data: empty }} sync={idleSync()} />
+    );
+
+    expect(
+      screen.queryByRole("button", { name: /sync now/i })
+    ).not.toBeInTheDocument();
+    expect(screen.queryByText(/never synced/i)).not.toBeInTheDocument();
+  });
+
+  it("keeps sync access on a connected-but-empty library", () => {
+    const emptyButSynced: BrewCandidatesResponse = {
+      generatedAt: "2026-06-27T12:00:00.000Z",
+      syncedAt: "2026-06-27T11:55:00.000Z",
+      warnings: [],
+      candidates: [],
+    };
+    render(
+      <DashboardView
+        state={{ status: "ready", data: emptyButSynced }}
+        sync={idleSync()}
+      />
+    );
+
+    expect(screen.getByRole("button", { name: /sync now/i })).toBeInTheDocument();
+    expect(
+      screen.getByRole("heading", { name: /no brew candidates yet/i })
     ).toBeInTheDocument();
   });
 });
