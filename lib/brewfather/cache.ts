@@ -3,14 +3,15 @@
  *
  * Backed by the `brewfather_data_cache` table (owner-only RLS). The BFF serves
  * cached inventory/recipes when they are fresher than {@link CACHE_TTL_MS},
- * otherwise it refetches and repopulates the cache. This keeps repeated
- * dashboard loads well under Brewfather's 500 calls/hr limit.
+ * otherwise it refetches and repopulates the cache. Dashboard loads within the
+ * TTL never touch Brewfather; the header's "Sync now" button is the escape
+ * hatch for pulling fresh data sooner.
  */
 import type { BrewfatherData } from "@/lib/brewfather/client";
 import { createClient } from "@/lib/supabase/server";
 
-/** How long cached data stays fresh (10 minutes). */
-export const CACHE_TTL_MS = 10 * 60 * 1000;
+/** How long cached data stays fresh (24 hours — refresh at most once a day). */
+export const CACHE_TTL_MS = 24 * 60 * 60 * 1000;
 
 /** The current user's cached data if present and still fresh, else null. */
 export async function getFreshCachedData(now: number = Date.now()): Promise<BrewfatherData | null> {
