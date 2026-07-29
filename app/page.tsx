@@ -1,10 +1,14 @@
 import Link from "next/link";
 
 import { Logo } from "@/components/brand/Logo";
+import { RecoveryRedirect } from "@/components/auth/RecoveryRedirect";
 
 export default function HomePage() {
   return (
     <main className="relative flex min-h-screen flex-col items-center justify-center overflow-hidden px-6 text-center">
+      {/* Supabase's stock recovery template lands here with the token in the
+          URL fragment; forward those visitors to the password form. */}
+      <RecoveryRedirect />
       <div className="pointer-events-none absolute -top-32 right-[-120px] h-[420px] w-[520px] rounded-full bg-[radial-gradient(circle,rgba(245,166,35,0.22),transparent_66%)] blur-3xl" />
       <div className="pointer-events-none absolute bottom-[-140px] left-[-120px] h-[420px] w-[520px] rounded-full bg-[radial-gradient(circle,rgba(77,208,225,0.18),transparent_66%)] blur-3xl" />
 

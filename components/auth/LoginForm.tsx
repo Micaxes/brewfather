@@ -56,6 +56,8 @@ export function LoginForm({ initialError }: { initialError?: string }) {
   const [error, setError] = useState<string | undefined>(initialError);
   const [pending, startTransition] = useTransition();
   const [googleLoading, setGoogleLoading] = useState(false);
+  const [resetPending, setResetPending] = useState(false);
+  const [resetSent, setResetSent] = useState(false);
 
   // If the user backs out of Google's consent screen, browsers restore this
   // page from the back/forward cache with React state intact — including
@@ -97,6 +99,45 @@ export function LoginForm({ initialError }: { initialError?: string }) {
     } catch {
       setGoogleLoading(false);
       setError("Could not start Google sign-in. Please try again.");
+    }
+  }
+
+  /**
+   * Mail the signed-in-less user a recovery link. Sent from the browser (like
+   * `signInWithGoogle` above) so the PKCE verifier lands in the same browser
+   * that will follow the link, and so `redirectTo` can use the real origin.
+   *
+   * `redirectTo` only matters while the Supabase "Reset password" template
+   * still uses the stock `{{ .ConfirmationURL }}`; once it points at
+   * `/auth/confirm?token_hash=…&type=recovery`, the link is a direct app URL
+   * and this is ignored.
+   */
+  async function sendPasswordReset() {
+    const value = email.trim();
+    if (!value) return;
+    setError(undefined);
+    setResetPending(true);
+    try {
+      const supabase = createClient();
+      const { error: resetError } = await supabase.auth.resetPasswordForEmail(
+        value,
+        {
+          redirectTo: `${window.location.origin}/auth/callback?next=/reset-password`,
+        }
+      );
+      if (resetError) {
+        setError(
+          resetError.message.toLowerCase().includes("rate limit")
+            ? "Too many emails have been sent recently. Wait an hour and try again."
+            : "Could not send the reset email. Please try again."
+        );
+      } else {
+        setResetSent(true);
+      }
+    } catch {
+      setError("Could not send the reset email. Please try again.");
+    } finally {
+      setResetPending(false);
     }
   }
 
@@ -173,6 +214,7 @@ export function LoginForm({ initialError }: { initialError?: string }) {
               onClick={() => {
                 setStep("email");
                 setError(undefined);
+                setResetSent(false);
               }}
               className="ml-3 flex-none font-semibold text-teal-bright"
             >
@@ -208,6 +250,29 @@ export function LoginForm({ initialError }: { initialError?: string }) {
                 ? "Create account"
                 : "Sign in"}
           </button>
+
+          {/* Only for existing accounts — there's nothing to recover on the
+              create-account step. */}
+          {step === "password" ? (
+            resetSent ? (
+              <p
+                role="status"
+                className="rounded-xl border border-teal/25 bg-teal/10 p-3 text-[13px] text-teal-bright"
+              >
+                Reset link sent to {email}. Check your inbox — the link opens a
+                page where you can set a new password.
+              </p>
+            ) : (
+              <button
+                type="button"
+                onClick={sendPasswordReset}
+                disabled={resetPending}
+                className="self-center text-[13px] font-semibold text-teal-bright disabled:opacity-70"
+              >
+                {resetPending ? "Sending…" : "Forgot password?"}
+              </button>
+            )
+          ) : null}
         </form>
       )}
 

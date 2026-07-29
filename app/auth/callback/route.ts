@@ -5,13 +5,18 @@
  */
 import { NextResponse } from "next/server";
 
-import { safeNext } from "@/lib/auth/safe-next";
+import { defaultNextForType, safeNext } from "@/lib/auth/safe-next";
 import { createClient } from "@/lib/supabase/server";
 
 export async function GET(request: Request): Promise<NextResponse> {
   const { searchParams, origin } = new URL(request.url);
   const code = searchParams.get("code");
-  const next = safeNext(searchParams.get("next"));
+  // A PKCE recovery link (`resetPasswordForEmail`) also arrives here; send it
+  // to the password form rather than straight into the dashboard.
+  const next = safeNext(
+    searchParams.get("next"),
+    defaultNextForType(searchParams.get("type"))
+  );
 
   // Behind Vercel's proxy `origin` is the internal host; honor the forwarded
   // host so the post-auth redirect lands on the origin the user is browsing.
