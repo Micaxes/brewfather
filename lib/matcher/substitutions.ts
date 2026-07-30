@@ -20,12 +20,15 @@ import type { MaltSubstitute } from "@/lib/matcher/types";
 import {
   COLORANT_DOSE_ADJUSTMENT,
   COLORANT_EBC_THRESHOLD,
+  EBC_TOLERANCE,
   MALT_CLASS_LABEL,
   type MaltClass,
   type ResolvedMalt,
   classifyByKeyword,
   ebcCompatible,
+  ebcRelation,
   isBlockedPair,
+  isUnmaltedForm,
   lookupMalt,
   mayStandInFor,
   sameEquivalenceRow,
@@ -62,6 +65,11 @@ export function resolveMaltProfile(
       resolved,
     };
   }
+  // Unmalted grain is excluded from the keyword fallback too — otherwise a
+  // "Torrefied Wheat" carrying a Brewfather colour would still profile as a
+  // wheat malt and slip past the guard in `lookupMalt`.
+  if (isUnmaltedForm(name)) return undefined;
+
   const maltClass = classifyByKeyword(name);
   if (maltClass === undefined || color === undefined || !Number.isFinite(color)) {
     return undefined;
@@ -141,9 +149,15 @@ export function buildJustification(
     parts.push(
       `The guide lists this on the same equivalence row as ${wantedName} — a direct 1:1 counterpart (${formatBand(candidate)} vs ${formatBand(wanted)}).`
     );
-  } else {
+  } else if (ebcRelation(wanted, candidate) === "within-tolerance") {
     parts.push(
-      `Both are ${label}s and the colour is close — ${formatBand(candidate)} vs ${formatBand(wanted)}, inside the guide's ±10% band, so swap 1:1.`
+      `Both are ${label}s and the colour sits inside the guide's ±${Math.round(EBC_TOLERANCE * 100)}% band — ${formatBand(candidate)} vs ${formatBand(wanted)} — so swap 1:1.`
+    );
+  } else {
+    // Overlapping bands can still be well over 10% apart at the midpoint, so
+    // say "overlap" rather than claiming a tolerance that does not hold.
+    parts.push(
+      `Both are ${label}s and their colour ranges overlap — ${formatBand(candidate)} vs ${formatBand(wanted)} — so swap 1:1.`
     );
   }
 

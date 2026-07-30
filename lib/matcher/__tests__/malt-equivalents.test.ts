@@ -10,7 +10,9 @@ import {
   MALT_ROWS,
   classifyByKeyword,
   ebcCompatible,
+  ebcRelation,
   isBlockedPair,
+  isUnmaltedForm,
   lookupMalt,
   sameEquivalenceRow,
 } from "@/lib/matcher/malt-equivalents";
@@ -107,6 +109,59 @@ describe("lookupMalt", () => {
   it("does not match a guide name mid-word", () => {
     // "blackcurrant" must not resolve via "Black".
     expect(lookupMalt("Blackcurrant Puree")).toBeUndefined();
+  });
+});
+
+describe("unmalted grain never resolves onto a malted row", () => {
+  // Regression: the bare `wheat` alias made "Torrefied Wheat" and
+  // "Wheat Unmalted" resolve to Weyermann Pale Wheat, offering raw grain as a
+  // stand-in for malt — no diastatic power, same failure rule 5 guards against
+  // for Roasted Barley.
+  it.each([
+    "Torrefied Wheat",
+    "Wheat Unmalted",
+    "Unmalted Wheat",
+    "Flaked Wheat",
+    "Rolled Oats",
+    "Raw Wheat",
+  ])("refuses to resolve %s", (name) => {
+    expect(isUnmaltedForm(name)).toBe(true);
+    expect(lookupMalt(name)).toBeUndefined();
+  });
+
+  it("still resolves Roasted Barley, which is unmalted by definition", () => {
+    expect(lookupMalt("Château Roasted Barley")?.row.id).toBe("roasted-barley");
+  });
+
+  it("leaves ordinary malt names untouched", () => {
+    for (const name of ["Pilsner Malt", "Weyermann Pale Wheat", "Vienna Malt"]) {
+      expect(isUnmaltedForm(name)).toBe(false);
+      expect(lookupMalt(name)).toBeDefined();
+    }
+  });
+
+  it("carries no unmalted marker in any guide entry name", () => {
+    // Proves the guard can never suppress a legitimate resolution.
+    for (const row of MALT_ROWS) {
+      for (const entry of row.malts) {
+        expect(isUnmaltedForm(entry.name)).toBe(false);
+      }
+    }
+  });
+});
+
+describe("ebcRelation", () => {
+  it("reports overlap separately from the 10% band", () => {
+    // Pale Ale vs Château Pale Ale: bands overlap but midpoints are 21% apart.
+    expect(ebcRelation({ ebcMin: 4.5, ebcMax: 6.5 }, { ebcMin: 6, ebcMax: 8 })).toBe(
+      "overlap"
+    );
+    expect(
+      ebcRelation({ ebcMin: 120, ebcMax: 120 }, { ebcMin: 130, ebcMax: 130 })
+    ).toBe("within-tolerance");
+    expect(
+      ebcRelation({ ebcMin: 90, ebcMax: 90 }, { ebcMin: 120, ebcMax: 120 })
+    ).toBeNull();
   });
 });
 

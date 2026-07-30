@@ -85,10 +85,19 @@ pilsner. Matches are also whole-word, so `Blackcurrant` cannot resolve via
 that don't (`Caramel/Crystal Malt 110`, `Oats, Flaked`, `Chateau Crystal`)
 simply behave as they did before this feature.
 
-Unmalted adjuncts — flaked oats, flaked barley, torrefied wheat — are
-intentionally **not** mapped onto their malted counterparts. Like Roasted
+Unmalted adjuncts — flaked oats, flaked barley, torrefied wheat, `Wheat
+Unmalted` — are **not** mapped onto their malted counterparts. Like Roasted
 Barley they lack diastatic power, so treating them as equivalents would be
-wrong in the same direction rule 5 warns about.
+wrong in the same direction rule 5 warns about. A name carrying an unmalted
+token (`unmalted`, `flaked`/`flakes`, `torrefied`, `rolled`, `raw`, `green`)
+never resolves to a malted row. The tokens are matched **per whole word**: as a
+raw substring, `raw` hides inside "Weyermann Ca·raw·heat".
+
+**"Colour is close" means one of two things**, and the justification says
+which. Bands that *overlap* can still be far apart at the midpoint — Pale Ale
+(4.5–6.5) and Château Pale Ale (6–8) overlap yet sit 21% apart — so a swap
+accepted on overlap is described as "their colour ranges overlap", and only a
+genuine midpoint match claims "inside the guide's ±10% band".
 
 Run `npm run subs:dryrun` to see what the rules do against live Brewfather
 data before shipping a change to the tables.

@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import type { InventoryItem, RecipeIngredient } from "@/lib/brewfather/types";
 import {
+  buildJustification,
   canSubstitute,
   doseFactorFor,
   findMaltSubstitutes,
@@ -113,6 +114,46 @@ describe("findMaltSubstitutes", () => {
     const result = findMaltSubstitutes(wants("Weyermann Caramunich Type 2", 1), inventory);
     expect(result).toHaveLength(3);
     expect(result.every((s) => s.coversNeed)).toBe(true);
+  });
+
+  it("says bands overlap rather than claiming a ±10% band that does not hold", () => {
+    // Pale Ale 4.5-6.5 vs Château Pale Ale 6-8: overlapping, but 21% apart at
+    // the midpoint. Asserting "±10%" here was a false statement.
+    const result = findMaltSubstitutes(wants("Pale Ale", 1), [
+      malt("Château Pale Ale", 5),
+    ]);
+    expect(result[0]?.justification).toMatch(/colour ranges overlap/i);
+    expect(result[0]?.justification).not.toMatch(/10%/);
+  });
+
+  it("claims the ±10% band only when the midpoints really are within it", () => {
+    // Non-overlapping bands 7.7% apart at the midpoint. Built by hand so no
+    // equivalence row exists and the colour branch is the one under test.
+    const wanted = { maltClass: "caramel" as const, ebcMin: 120, ebcMax: 120 };
+    const candidate = { maltClass: "caramel" as const, ebcMin: 130, ebcMax: 130 };
+
+    const text = buildJustification("Some Malt", wanted, candidate, false);
+    expect(text).toMatch(/inside the guide's ±10% band/);
+    expect(text).not.toMatch(/overlap/);
+  });
+
+  it("says overlap when the bands overlap, whatever the midpoint gap", () => {
+    const wanted = { maltClass: "caramel" as const, ebcMin: 100, ebcMax: 120 };
+    const candidate = { maltClass: "caramel" as const, ebcMin: 110, ebcMax: 130 };
+
+    const text = buildJustification("Some Malt", wanted, candidate, false);
+    expect(text).toMatch(/colour ranges overlap/);
+  });
+
+  it("never offers unmalted grain as a stand-in for malt", () => {
+    // "Torrefied Wheat" used to resolve onto Weyermann Pale Wheat.
+    expect(resolveMaltProfile("Torrefied Wheat", 4)).toBeUndefined();
+    expect(resolveMaltProfile("Wheat Unmalted", 4)).toBeUndefined();
+
+    const result = findMaltSubstitutes(wants("Weyermann Pale Wheat", 1), [
+      malt("Torrefied Wheat", 5),
+    ]);
+    expect(result).toEqual([]);
   });
 
   it("explains why each suggestion was made", () => {

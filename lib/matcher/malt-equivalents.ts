@@ -559,6 +559,34 @@ function buildIndex(): void {
 const MIN_CONTAINMENT_LENGTH = 4;
 
 /**
+ * Markers for grain that was never malted: flaked, torrefied, rolled or raw.
+ *
+ * These carry no diastatic power and a different character, so they must not
+ * resolve onto a malted row — "Torrefied Wheat" and "Wheat Unmalted" both used
+ * to land on Weyermann Pale Wheat via the bare `wheat` alias, which would offer
+ * raw grain as a stand-in for malt. Same failure the `unmalted` row flag
+ * prevents for Roasted Barley.
+ *
+ * Matched per whole token, never as a raw substring: `raw` occurs inside
+ * "Weyermann Ca-raw-heat", which a substring check wrongly disqualified. No
+ * guide entry name trips the token form, so the guard can never suppress a
+ * legitimate resolution (asserted in the tests).
+ */
+const UNMALTED_TOKENS = new Set(["unmalted", "rolled", "raw", "green"]);
+/** Token prefixes, so "flaked"/"flakes" and "torrefied"/"torrified" all count. */
+const UNMALTED_TOKEN_PREFIXES = ["flake", "torref", "torrif"];
+
+/** Whether a name describes unmalted grain rather than malt. */
+export function isUnmaltedForm(name: string): boolean {
+  const tokens = normalizeName(name).split(" ").filter(Boolean);
+  return tokens.some(
+    (token) =>
+      UNMALTED_TOKENS.has(token) ||
+      UNMALTED_TOKEN_PREFIXES.some((prefix) => token.startsWith(prefix))
+  );
+}
+
+/**
  * Resolve a malt name against the guide.
  *
  * Two passes, strictest first: exact normalized name (which also covers bare
@@ -577,6 +605,15 @@ export function lookupMalt(name: string): ResolvedMalt | undefined {
   const query = normalizeName(name);
   if (!query) return undefined;
 
+  const resolved = resolveByName(query);
+  if (!resolved) return undefined;
+
+  // Unmalted grain never resolves onto a malted row (see UNMALTED_TOKENS).
+  if (isUnmaltedForm(query) && !resolved.row.unmalted) return undefined;
+  return resolved;
+}
+
+function resolveByName(query: string): ResolvedMalt | undefined {
   const direct = exact!.get(query);
   if (direct) return direct;
 
@@ -615,6 +652,29 @@ export function classifyByKeyword(name: string): MaltClass | undefined {
 }
 
 /**
+ * Why two malts are colour-compatible, or `null` when they are not.
+ *
+ * `overlap` and `within-tolerance` are genuinely different claims — overlapping
+ * bands can still be more than 10% apart at the midpoint (Pale Ale 4.5–6.5 vs
+ * Château Pale Ale 6–8 overlap but sit 21% apart). The justification copy has
+ * to say which one applies rather than asserting ±10% for both.
+ */
+export type EbcRelation = "overlap" | "within-tolerance";
+
+export function ebcRelation(
+  a: { ebcMin: number; ebcMax: number },
+  b: { ebcMin: number; ebcMax: number },
+  tolerance: number = EBC_TOLERANCE
+): EbcRelation | null {
+  if (a.ebcMin <= b.ebcMax && b.ebcMin <= a.ebcMax) return "overlap";
+  const midA = (a.ebcMin + a.ebcMax) / 2;
+  const midB = (b.ebcMin + b.ebcMax) / 2;
+  const largest = Math.max(midA, midB);
+  if (largest <= 0) return "within-tolerance";
+  return Math.abs(midA - midB) / largest <= tolerance ? "within-tolerance" : null;
+}
+
+/**
  * Guide rule 2: two malts are colour-compatible when their published bands
  * overlap, or their midpoints sit within {@link EBC_TOLERANCE} of each other.
  */
@@ -623,12 +683,7 @@ export function ebcCompatible(
   b: { ebcMin: number; ebcMax: number },
   tolerance: number = EBC_TOLERANCE
 ): boolean {
-  if (a.ebcMin <= b.ebcMax && b.ebcMin <= a.ebcMax) return true;
-  const midA = (a.ebcMin + a.ebcMax) / 2;
-  const midB = (b.ebcMin + b.ebcMax) / 2;
-  const largest = Math.max(midA, midB);
-  if (largest <= 0) return true;
-  return Math.abs(midA - midB) / largest <= tolerance;
+  return ebcRelation(a, b, tolerance) !== null;
 }
 
 /** Whether two resolved malts sit on the same guide row (direct 1:1 pair). */
