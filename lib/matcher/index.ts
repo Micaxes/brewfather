@@ -7,7 +7,7 @@
  * ranked `MatchResult`. The only non-pure input — the timestamp — is injectable
  * via `options.now` so callers/tests stay deterministic.
  */
-import type { Recipe, RecipeDetail } from "@/lib/brewfather/types";
+import type { InventoryItem, Recipe, RecipeDetail } from "@/lib/brewfather/types";
 import type {
   MatchBucket,
   MatchInput,
@@ -54,7 +54,7 @@ export function matchRecipes(
   const warnings = new Set<string>();
 
   const candidates = input.recipes.map((recipe) =>
-    evaluateRecipe(recipe, index, warnings)
+    evaluateRecipe(recipe, index, warnings, input.inventory)
   );
   candidates.sort(compareCandidates);
 
@@ -69,12 +69,17 @@ export function matchRecipes(
 function evaluateRecipe(
   recipe: RecipeDetail,
   index: ReturnType<typeof buildInventoryIndex>,
-  warnings: Set<string>
+  warnings: Set<string>,
+  inventory: InventoryItem[]
 ): RecipeMatch {
   // Cleaned pipeline: drop junk `items` rows, merge duplicate lines, then
-  // match everything against the shared inventory index.
+  // match everything against the shared inventory index. Passing the inventory
+  // enables the malt-substitution pass (docs/malt-substitutions.md).
   const prepared = prepareIngredients(recipe);
-  const ingredientMatches = matchIngredients(prepared.all, index);
+  const ingredientMatches = matchIngredients(prepared.all, index, {
+    inventory,
+    ...(recipe.style !== undefined ? { style: recipe.style } : {}),
+  });
 
   for (const match of ingredientMatches) {
     if (hasUnitMismatch(match) && match.inventoryItem) {
@@ -129,6 +134,20 @@ export {
   IMPORTANCE_WEIGHT,
 } from "@/lib/matcher/score";
 export { scaleRecipeToStock } from "@/lib/matcher/scale";
+export {
+  MAX_SUBSTITUTES,
+  canSubstitute,
+  findMaltSubstitutes,
+  resolveMaltProfile,
+} from "@/lib/matcher/substitutions";
+export type { MaltProfile, SubstituteOptions } from "@/lib/matcher/substitutions";
+export {
+  EBC_TOLERANCE,
+  MALT_ROWS,
+  ebcCompatible,
+  lookupMalt,
+} from "@/lib/matcher/malt-equivalents";
+export type { MaltClass, MaltRow, ResolvedMalt } from "@/lib/matcher/malt-equivalents";
 export type {
   ScaledIngredient,
   ScaleToStockOptions,

@@ -233,6 +233,79 @@ describe("scaleRecipeToStock", () => {
     );
   });
 
+  it("scales a fermentable on a guide equivalent instead of zeroing the factor", () => {
+    // The dashboard already satisfies Caramunich Type 2 from Crystal 120 (they
+    // share an equivalence row in docs/malt-substitutions.md), so scale-to-stock
+    // must draw on that same sack rather than calling the malt missing.
+    const r = recipe({
+      batchSize: 20,
+      fermentables: [
+        ing({
+          id: "",
+          name: "Weyermann Caramunich Type 2",
+          category: "fermentable",
+          amount: 1,
+          unit: "kg",
+        }),
+      ],
+      hops: [ing({ id: "h1", name: "Saaz", amount: 40, unit: "g" })],
+    });
+    const inventory = [
+      inv({
+        id: "inv-crystal",
+        name: "Crisp Crystal 120",
+        category: "fermentable",
+        amount: 3,
+        unit: "kg",
+      }),
+      inv({ id: "h1", name: "Saaz", amount: 400, unit: "g" }), // 10x, not limiting
+    ];
+
+    const result = scaleRecipeToStock(r, inventory);
+
+    expect(result.factor).toBe(3); // 3 kg of the stand-in / 1 kg needed
+    expect(result.scaledBatchSize).toBe(60);
+    const malt = result.ingredients.find(
+      (i) => i.ingredient.name === "Weyermann Caramunich Type 2"
+    )!;
+    expect(malt.inventoryItem?.name).toBe("Crisp Crystal 120");
+    expect(malt.matchedBy).toBe("equivalent");
+    expect(malt.scaledAmount).toBe(3);
+    expect(result.limitedBy).toEqual(["Weyermann Caramunich Type 2"]);
+  });
+
+  it("still reports a fermentable with no guide equivalent as missing", () => {
+    // A base malt cannot stand in for a crystal malt (guide rule 1), so the
+    // fallback must not loosen the missing case into a bogus factor.
+    const r = recipe({
+      batchSize: 20,
+      fermentables: [
+        ing({
+          id: "",
+          name: "Weyermann Caramunich Type 2",
+          category: "fermentable",
+          amount: 1,
+          unit: "kg",
+        }),
+      ],
+    });
+    const inventory = [
+      inv({
+        id: "inv-pils",
+        name: "Weyermann Pilsner",
+        category: "fermentable",
+        amount: 10,
+        unit: "kg",
+      }),
+    ];
+
+    const result = scaleRecipeToStock(r, inventory);
+
+    expect(result.factor).toBe(0);
+    expect(result.ingredients[0]!.inventoryItem).toBeUndefined();
+    expect(result.limitedBy).toEqual(["Weyermann Caramunich Type 2"]);
+  });
+
   it("reports a missing batch size without failing", () => {
     const r = recipe({
       hops: [ing({ id: "h1", name: "EKG", amount: 25, unit: "g" })],

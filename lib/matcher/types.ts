@@ -17,8 +17,29 @@ import type {
 /** Per-ingredient match outcome. */
 export type MatchStatus = "satisfied" | "short" | "missing";
 
-/** How a recipe ingredient was resolved to an inventory item. */
-export type MatchMethod = "id" | "name";
+/**
+ * How a recipe ingredient was resolved to an inventory item.
+ *
+ * `equivalent` means no exact item was found but a malt the substitution guide
+ * considers interchangeable was — the recipe counts as satisfied, and the UI
+ * says so rather than implying the exact malt is on the shelf.
+ * See `docs/malt-substitutions.md`.
+ */
+export type MatchMethod = "id" | "name" | "equivalent";
+
+/** An in-inventory stand-in for a malt, with the reason it was proposed. */
+export interface MaltSubstitute {
+  /** The item from the user's own inventory being proposed. */
+  inventoryItem: InventoryItem;
+  /** Stock available, expressed in the recipe ingredient's unit. */
+  have: number;
+  /** Whether that stock covers the requirement (after `doseFactor`). */
+  coversNeed: boolean;
+  /** Why the guide allows this swap — shown to the user verbatim. */
+  justification: string;
+  /** Dose multiplier: 1 for a straight swap, 0.85 for >250 EBC colourants. */
+  doseFactor: number;
+}
 
 /** Overall bucket a recipe falls into for the dashboard. */
 export type MatchBucket = "brew_now" | "almost" | "not_yet";
@@ -38,6 +59,12 @@ export interface IngredientMatch {
   need: number;
   /** Amount still needed (`need - have`, clamped at 0). */
   shortfall: number;
+  /**
+   * In-inventory malts that could stand in, best first (max 3). Present only
+   * for fermentables that are missing or short. When `matchedBy` is
+   * `equivalent`, the first entry is the substitute that satisfied the line.
+   */
+  substitutes?: MaltSubstitute[];
 }
 
 /** A line on a recipe's shopping list (one shortfall to buy). */

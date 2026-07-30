@@ -23,6 +23,7 @@ import type {
 import type { IngredientMatch, MatchStatus } from "@/lib/matcher/types";
 import type { Unit } from "@/lib/brewfather/types";
 import { convertAmount, normalizeName, normalizeUnit } from "@/lib/matcher/normalize";
+import { findMaltSubstitutes } from "@/lib/matcher/substitutions";
 
 /**
  * Default Fuse.js score threshold for the normalized-name fuzzy fallback.
@@ -132,6 +133,18 @@ export function matchIngredient(
   return buildIngredientMatch(ingredient, matched, matchedBy, reservations);
 }
 
+export interface MatchIngredientsOptions {
+  /**
+   * Full inventory. Supplying it enables the malt-substitution pass: missing
+   * or short fermentables get ranked in-inventory stand-ins, and a missing
+   * malt fully covered by one of them is resolved as `equivalent`.
+   * See `docs/malt-substitutions.md`.
+   */
+  inventory?: InventoryItem[];
+  /** Recipe style, used for the guide's style-origin ranking (rule 3). */
+  style?: string;
+}
+
 /**
  * Match a list of (already prepared) ingredients against the inventory,
  * sharing one reservations map so lines resolving to the same inventory item
@@ -139,12 +152,79 @@ export function matchIngredient(
  */
 export function matchIngredients(
   ingredients: RecipeIngredient[],
-  index: InventoryIndex
+  index: InventoryIndex,
+  options: MatchIngredientsOptions = {}
 ): IngredientMatch[] {
   const reservations: Reservations = new Map();
-  return ingredients.map((ingredient) =>
-    matchIngredient(ingredient, index, reservations)
+  return ingredients.map((ingredient) => {
+    const match = matchIngredient(ingredient, index, reservations);
+    if (!options.inventory) return match;
+    return applyMaltSubstitutes(
+      match,
+      options.inventory,
+      reservations,
+      options.style
+    );
+  });
+}
+
+/**
+ * Attach ranked in-inventory stand-ins to a missing or short fermentable, and
+ * resolve the line when a single substitute covers the whole requirement.
+ *
+ * Only a fully-covering replacement upgrades the status — blending a partial
+ * shortfall across two malts is a recipe change, so short lines keep their
+ * status and merely gain suggestions.
+ */
+function applyMaltSubstitutes(
+  match: IngredientMatch,
+  inventory: InventoryItem[],
+  reservations: Reservations,
+  style?: string
+): IngredientMatch {
+  if (match.ingredient.category !== "fermentable") return match;
+  if (match.status === "satisfied") return match;
+
+  const substitutes = findMaltSubstitutes(match.ingredient, inventory, {
+    ...(style !== undefined ? { style } : {}),
+    reserved: reservations,
+    ...(match.inventoryItem ? { exclude: match.inventoryItem } : {}),
+  });
+  if (substitutes.length === 0) return match;
+
+  const withSuggestions: IngredientMatch = { ...match, substitutes };
+
+  // Only a missing line can be replaced outright; a short line already draws
+  // on real stock of the requested malt and topping it up would blend.
+  const best = substitutes[0];
+  if (match.status !== "missing" || !best || !best.coversNeed) {
+    return withSuggestions;
+  }
+
+  // Reserve what the stand-in consumes so later lines see the remainder.
+  const item = best.inventoryItem;
+  const needInItemUnit = convertAmount(
+    match.need * best.doseFactor,
+    match.ingredient.unit,
+    item.unit
   );
+  if (needInItemUnit !== null) {
+    const alreadyReserved = reservations.get(item) ?? 0;
+    const available = Math.max(item.amount - alreadyReserved, 0);
+    reservations.set(
+      item,
+      alreadyReserved + Math.min(Math.max(needInItemUnit, 0), available)
+    );
+  }
+
+  return {
+    ...withSuggestions,
+    inventoryItem: item,
+    matchedBy: "equivalent",
+    status: "satisfied",
+    have: best.have,
+    shortfall: 0,
+  };
 }
 
 /**
