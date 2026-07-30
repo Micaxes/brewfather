@@ -10,13 +10,63 @@
  * Read-only: no writes to Brewfather, no database access.
  *
  *   npx tsx scripts/substitution-dryrun.ts
+ *
+ * `npm run subs:dryrun` adds `--env-file=.env`, and Node refuses to start at all
+ * when that file is absent — a stack trace before this script is ever loaded. So
+ * the script also loads `.env` itself (exactly as `scripts/match-spike.ts` does)
+ * and reports absent credentials as an actionable message. On a checkout with no
+ * `.env` yet, invoke it directly via `npx tsx` rather than through the npm
+ * script.
  */
+import { existsSync, readFileSync } from "node:fs";
+import { resolve } from "node:path";
+
 import { createBrewfatherClient } from "@/lib/brewfather/client";
 import { matchRecipes } from "@/lib/matcher";
 import { lookupMalt } from "@/lib/matcher/malt-equivalents";
 import { resolveMaltProfile } from "@/lib/matcher/substitutions";
 
+/**
+ * Minimal `.env` loader. A standalone tsx script (unlike Next.js) does not load
+ * `.env`, so read it here. Existing process env wins — that keeps whatever
+ * `--env-file=.env` already put in place, and lets a one-off
+ * `BF_USER_ID=… npx tsx …` override the file. Quotes are stripped.
+ */
+function loadDotEnv(file = ".env"): void {
+  const path = resolve(process.cwd(), file);
+  if (!existsSync(path)) return;
+  for (const line of readFileSync(path, "utf8").split("\n")) {
+    const trimmed = line.trim();
+    if (!trimmed || trimmed.startsWith("#")) continue;
+    const eq = trimmed.indexOf("=");
+    if (eq === -1) continue;
+    const key = trimmed.slice(0, eq).trim();
+    let value = trimmed.slice(eq + 1).trim();
+    if (
+      (value.startsWith('"') && value.endsWith('"')) ||
+      (value.startsWith("'") && value.endsWith("'"))
+    ) {
+      value = value.slice(1, -1);
+    }
+    if (!(key in process.env)) process.env[key] = value;
+  }
+}
+
 async function main(): Promise<void> {
+  loadDotEnv();
+
+  if (!process.env.BF_USER_ID || !process.env.BF_API_KEY) {
+    console.error(
+      "Missing BF_USER_ID / BF_API_KEY. Add them to .env at the repo root.\n" +
+        "Generate a key in Brewfather → Settings → API (requires Premium). The User ID\n" +
+        "is the short token shown next to the key, NOT your account email."
+    );
+    process.exitCode = 1;
+    return;
+  }
+
+  // The ONLY place the BF_* env credentials are allowed: an offline developer
+  // tool. Request paths must always pass the signed-in user's Vault key.
   const client = createBrewfatherClient({ allowEnvFallback: true });
   console.log("Fetching live inventory + recipes…");
   const { inventory, recipes } = await client.getData();

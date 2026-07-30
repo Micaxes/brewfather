@@ -265,4 +265,25 @@ describe("findMaltSubstitutes", () => {
     );
     expect(result).toEqual([]);
   });
+
+  it("offers a duplicate row of the same malt when the matched row is empty", () => {
+    // Fuzzy matching picks the best NAME match regardless of stock, so a line
+    // can resolve onto an empty duplicate row and report "missing" while a
+    // second sack of the identical malt sits in the inventory. That second
+    // sack is the correct suggestion — the brewer can brew tonight.
+    const emptySack = malt("Crisp Crystal 120", 0, { id: "inv-crystal-a" });
+    const fullSack = malt("Crisp Crystal 120", 5, { id: "inv-crystal-b" });
+    const result = findMaltSubstitutes(
+      wants("Crisp Crystal 120", 1),
+      [emptySack, fullSack],
+      { exclude: emptySack }
+    );
+    expect(result).toHaveLength(1);
+    expect(result[0]?.inventoryItem).toBe(fullSack);
+    expect(result[0]?.coversNeed).toBe(true);
+    // The copy is tautological for a same-name pair but stays true: it really
+    // is the same equivalence row, so "a direct 1:1 counterpart" is exactly
+    // the right advice — pour from the other sack.
+    expect(result[0]?.justification).toMatch(/direct 1:1 counterpart/);
+  });
 });

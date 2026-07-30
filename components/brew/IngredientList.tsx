@@ -106,6 +106,9 @@ export function IngredientList({ matches }: { matches: IngredientMatch[] }) {
         const meta = substituted ? SUBSTITUTED_META : STATUS_META[match.status];
         const { Icon } = meta;
         const substitutes = match.substitutes ?? [];
+        const substitutesLabel = substituted
+          ? "Substituted from your inventory"
+          : "Substitutes in your inventory";
 
         return (
           <li
@@ -126,12 +129,27 @@ export function IngredientList({ matches }: { matches: IngredientMatch[] }) {
 
             {substitutes.length > 0 ? (
               <div className="mt-1 ml-6 border-l border-border/60 pl-3">
-                <p className="text-muted-foreground mb-1 text-[11px] font-semibold tracking-wide uppercase">
-                  {substituted
-                    ? "Substituted from your inventory"
-                    : "Substitutes in your inventory"}
+                {/*
+                  Sighted users get the grouping from the indent, the rule, and
+                  this caption. A screen reader gets none of that, so the same
+                  words — plus the malt they belong to — become the nested
+                  list's accessible name ("Substitutes in your inventory for
+                  Weyermann Caramunich Type 2, list"). The caption itself is
+                  hidden from assistive tech so the label is not announced
+                  twice, and no `id`/`aria-labelledby` pair is needed (several
+                  recipe cards render this component on one page, so generated
+                  ids would collide).
+                */}
+                <p
+                  aria-hidden="true"
+                  className="text-muted-foreground mb-1 text-[11px] font-semibold tracking-wide uppercase"
+                >
+                  {substitutesLabel}
                 </p>
-                <ul className="flex flex-col gap-1.5">
+                <ul
+                  aria-label={`${substitutesLabel} for ${match.ingredient.name}`}
+                  className="flex flex-col gap-1.5"
+                >
                   {substitutes.map((substitute, subIndex) => (
                     <SubstituteRow
                       key={

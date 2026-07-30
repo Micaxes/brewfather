@@ -1,4 +1,4 @@
-import { cleanup, render, screen } from "@testing-library/react";
+import { cleanup, render, screen, within } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
 
 import type { IngredientMatch } from "@/lib/matcher/types";
@@ -133,5 +133,51 @@ describe("IngredientList — malt substitutions", () => {
   it("shows nothing extra for an ingredient with no substitutes", () => {
     render(<IngredientList matches={matches} />);
     expect(screen.queryByText(/substitutes in your inventory/i)).not.toBeInTheDocument();
+  });
+
+  // Sighted users read the group from the indent and the caption above it; a
+  // screen reader only gets that structure if the nested list carries a name
+  // that says which malt these stand-ins are for.
+  it("names the substitute list after the ingredient it belongs to", () => {
+    render(<IngredientList matches={[withSubstitutes]} />);
+
+    const substituteList = screen.getByRole("list", {
+      name: "Substitutes in your inventory for Weyermann Caramunich Type 2",
+    });
+    expect(within(substituteList).getAllByRole("listitem")).toHaveLength(2);
+  });
+
+  it("names the list after the stand-in actually in use when substituted", () => {
+    render(
+      <IngredientList
+        matches={[
+          {
+            ...withSubstitutes,
+            status: "satisfied",
+            matchedBy: "equivalent",
+            inventoryItem: CRYSTAL,
+            have: 5,
+            shortfall: 0,
+          },
+        ]}
+      />
+    );
+
+    expect(
+      screen.getByRole("list", {
+        name: "Substituted from your inventory for Weyermann Caramunich Type 2",
+      })
+    ).toBeInTheDocument();
+  });
+
+  it("does not announce the caption twice", () => {
+    render(<IngredientList matches={[withSubstitutes]} />);
+
+    // The visible caption duplicates the list's accessible name, so it is
+    // hidden from assistive tech rather than read out ahead of it.
+    expect(screen.getByText("Substitutes in your inventory")).toHaveAttribute(
+      "aria-hidden",
+      "true"
+    );
   });
 });

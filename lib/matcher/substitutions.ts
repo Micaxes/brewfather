@@ -220,7 +220,16 @@ export function findMaltSubstitutes(
 
   const scored = inventory
     .filter((item) => item.category === "fermentable")
-    .filter((item) => item !== options.exclude && item.name !== ingredient.name)
+    // Object identity only — deliberately *not* a name comparison. Fuzzy
+    // matching in `match.ts` resolves a line onto the best NAME match
+    // regardless of stock level, and real inventories carry duplicate rows for
+    // one malt (two sacks of "Oats, Flaked", two of "Chateau Pilsen 2RS"). A
+    // line can therefore land on the empty sack and go missing; filtering by
+    // name as well would also hide the twin row that still has stock, so no
+    // substitute would be offered for a malt the brewer demonstrably owns. The
+    // identity check alone is enough to stop a line proposing the very item it
+    // already resolved to.
+    .filter((item) => item !== options.exclude)
     .flatMap((item) => {
       const candidate = resolveMaltProfile(item.name, item.color);
       if (!candidate || !canSubstitute(wanted, candidate)) return [];

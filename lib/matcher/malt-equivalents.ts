@@ -525,6 +525,20 @@ interface IndexedMalt {
 let index: IndexedMalt[] | undefined;
 let exact: Map<string, ResolvedMalt> | undefined;
 
+/**
+ * Memoized {@link lookupMalt} answers, keyed on the *normalized* query.
+ *
+ * The containment pass is a linear scan over ~350 indexed names, and
+ * `findMaltSubstitutes` re-resolves the whole inventory for every missing malt
+ * of every recipe — the same handful of names, over and over. Misses are cached
+ * too (as `undefined`), because a pantry full of hops and salts is exactly the
+ * input that pays the full scan every time.
+ *
+ * Rebuilt by {@link buildIndex} so the cache can never outlive the index it was
+ * derived from.
+ */
+let lookupCache: Map<string, ResolvedMalt | undefined> | undefined;
+
 function buildIndex(): void {
   const list: IndexedMalt[] = [];
   const map = new Map<string, ResolvedMalt>();
@@ -553,6 +567,7 @@ function buildIndex(): void {
   list.sort((a, b) => b.normalized.length - a.normalized.length);
   index = list;
   exact = map;
+  lookupCache = new Map();
 }
 
 /** Shortest guide name allowed to match by containment. */
@@ -599,17 +614,26 @@ export function isUnmaltedForm(name: string): boolean {
  * I" at 131–200 EBC, which would have swapped a crystal malt into a pilsner.
  * Whole-word boundaries and a minimum length keep short names from matching
  * mid-word.
+ *
+ * Memoized on the normalized query (see {@link lookupCache}); the answer is a
+ * pure function of that query, so caching changes nothing but the cost.
  */
 export function lookupMalt(name: string): ResolvedMalt | undefined {
-  if (!index || !exact) buildIndex();
+  if (!index || !exact || !lookupCache) buildIndex();
   const query = normalizeName(name);
   if (!query) return undefined;
 
-  const resolved = resolveByName(query);
-  if (!resolved) return undefined;
+  const cache = lookupCache!;
+  // `has`, not a truthiness check: a cached miss is stored as `undefined` and
+  // must short-circuit the scan just like a cached hit.
+  if (cache.has(query)) return cache.get(query);
 
+  let resolved = resolveByName(query);
   // Unmalted grain never resolves onto a malted row (see UNMALTED_TOKENS).
-  if (isUnmaltedForm(query) && !resolved.row.unmalted) return undefined;
+  if (resolved && isUnmaltedForm(query) && !resolved.row.unmalted) {
+    resolved = undefined;
+  }
+  cache.set(query, resolved);
   return resolved;
 }
 
@@ -625,27 +649,93 @@ function resolveByName(query: string): ResolvedMalt | undefined {
   return undefined;
 }
 
+interface ClassKeywords {
+  maltClass: MaltClass;
+  /**
+   * Whole-word keywords. Multi-word entries ("pale ale", "roasted barley")
+   * match a consecutive run of tokens, never a scattered one.
+   */
+  words: readonly string[];
+  /**
+   * Token *prefixes*, for the keywords whose real-world forms are inflected or
+   * compounded: "oat"/"oats", "melanoid"/"melanoidin", "dextrin"/"dextrine",
+   * "roast"/"roasted", "cara"/"carapils", "weizen"/"weizenmalz",
+   * "pilsen"/"pilsener". These are the only keywords allowed to match a
+   * prefix of a token, and none of them is a word that means anything else.
+   */
+  prefixes?: readonly string[];
+}
+
 /**
  * Best-effort malt class from name keywords, for inventory items that carry a
  * Brewfather colour but are not in the guide by name (e.g. "Caramel/Crystal
- * Malt 110"). Order matters: the most specific keywords are checked first.
+ * Malt 110").
+ *
+ * Keywords match on whole-word boundaries, the same rule {@link resolveByName}
+ * and {@link isUnmaltedForm} already apply. A raw substring check classified
+ * "Blackcurrant Puree" as roasted (via "black") and "Buckwheat" as wheat —
+ * pure noise fed into the substitution ranking. Anything that genuinely needs
+ * to match mid-word is spelled out as a prefix instead.
+ *
+ * Order matters: the most specific class wins. `wheat` leads, because a wheat
+ * token is the strongest signal a name carries and the guide gives wheat its
+ * own chocolate, caramel and black rows — "Chocolate Wheat Malt" is a wheat
+ * malt, not a roasted one, while plain "Chocolate Malt" still lands on roasted.
  */
-const CLASS_KEYWORDS: readonly (readonly [MaltClass, readonly string[]])[] = [
-  ["roasted", ["roasted barley", "black malt", "chocolate", "carafa", "roast", "black", "coffee"]],
-  ["wheat", ["wheat", "froment", "weizen", "blé"]],
-  ["caramel", ["caramunich", "carahell", "carared", "caramel", "crystal", "cara", "special b", "special w"]],
-  ["kilned", ["carafoam", "dextrin", "biscuit", "abbey", "abbaye", "amber", "brown malt", "melanoid"]],
-  ["adjunct-grain", ["rye", "seigle", "spelt", "epeautre", "oat", "avoine"]],
-  ["technical", ["acidulated", "acide", "smoked", "fumé", "peated", "diastatic"]],
-  ["base", ["pilsner", "pilsen", "pale ale", "maris otter", "golden promise", "vienna", "vienne", "munich", "lager", "heidelberg", "base"]],
+const CLASS_KEYWORDS: readonly ClassKeywords[] = [
+  { maltClass: "wheat", words: ["wheat", "froment", "blé"], prefixes: ["weizen"] },
+  {
+    maltClass: "roasted",
+    words: ["roasted barley", "black malt", "chocolate", "carafa", "black", "coffee"],
+    prefixes: ["roast"],
+  },
+  {
+    maltClass: "caramel",
+    words: ["caramunich", "carahell", "carared", "caramel", "crystal", "special b", "special w"],
+    prefixes: ["cara"],
+  },
+  // Its own class in the guide, so it must not fall through to `kilned`:
+  // rule 1 blocks cross-class swaps, which would stop a keyword-classified
+  // "Melanoidin Malt" ever substituting for the guide's melanoidin row.
+  { maltClass: "melanoidin", words: [], prefixes: ["melanoid"] },
+  {
+    maltClass: "kilned",
+    words: ["carafoam", "biscuit", "abbey", "abbaye", "amber", "brown malt"],
+    prefixes: ["dextrin"],
+  },
+  {
+    maltClass: "adjunct-grain",
+    words: ["rye", "seigle", "spelt", "epeautre", "avoine"],
+    prefixes: ["oat"],
+  },
+  {
+    maltClass: "technical",
+    words: ["acidulated", "acide", "smoked", "fumé", "peated", "diastatic"],
+  },
+  {
+    maltClass: "base",
+    words: ["pilsner", "pale ale", "maris otter", "golden promise", "vienna", "vienne", "munich", "lager", "heidelberg", "base"],
+    prefixes: ["pilsen"],
+  },
 ];
 
 export function classifyByKeyword(name: string): MaltClass | undefined {
   const query = normalizeName(name);
   if (!query) return undefined;
-  for (const [maltClass, keywords] of CLASS_KEYWORDS) {
-    for (const keyword of keywords) {
-      if (query.includes(normalizeName(keyword))) return maltClass;
+
+  // Padding turns `includes` into a whole-word test, and — because
+  // normalizeName collapses separators to single spaces — a multi-word keyword
+  // then only matches consecutive tokens.
+  const padded = ` ${query} `;
+  const tokens = query.split(" ").filter(Boolean);
+
+  for (const { maltClass, words, prefixes } of CLASS_KEYWORDS) {
+    for (const word of words) {
+      if (padded.includes(` ${normalizeName(word)} `)) return maltClass;
+    }
+    for (const prefix of prefixes ?? []) {
+      const normalized = normalizeName(prefix);
+      if (tokens.some((token) => token.startsWith(normalized))) return maltClass;
     }
   }
   return undefined;

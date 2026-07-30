@@ -16,6 +16,7 @@ import {
   lookupMalt,
   sameEquivalenceRow,
 } from "@/lib/matcher/malt-equivalents";
+import { canSubstitute, resolveMaltProfile } from "@/lib/matcher/substitutions";
 
 describe("MALT_ROWS data integrity", () => {
   it("has unique row ids", () => {
@@ -109,6 +110,39 @@ describe("lookupMalt", () => {
   it("does not match a guide name mid-word", () => {
     // "blackcurrant" must not resolve via "Black".
     expect(lookupMalt("Blackcurrant Puree")).toBeUndefined();
+  });
+});
+
+describe("lookupMalt memoization", () => {
+  // The lookup is memoized on the normalized query because the containment
+  // pass scans every indexed guide name and the matcher re-resolves the whole
+  // inventory once per missing malt. These pin that the cache cannot change an
+  // answer: hits, misses, and the unmalted guard all survive a repeat.
+  it("returns the same result for a repeated hit", () => {
+    const first = lookupMalt("Weyermann Caramunich Type 2");
+    const second = lookupMalt("Weyermann Caramunich Type 2");
+    expect(first?.row.id).toBe("caramel-munich-2");
+    expect(second).toBe(first);
+  });
+
+  it("shares one answer across names that normalize alike", () => {
+    expect(lookupMalt("Château Roasted Barley")).toBe(
+      lookupMalt("chateau  roasted barley!")
+    );
+  });
+
+  it("caches a miss without ever turning it into a hit", () => {
+    expect(lookupMalt("Totally Made Up Malt")).toBeUndefined();
+    expect(lookupMalt("Totally Made Up Malt")).toBeUndefined();
+  });
+
+  it("keeps a hit and a miss on the same stem apart", () => {
+    // "Flaked Wheat" is suppressed by the unmalted guard while "Pale Wheat"
+    // resolves — a cache keyed on anything coarser would collapse the two.
+    for (let pass = 0; pass < 2; pass += 1) {
+      expect(lookupMalt("Weyermann Pale Wheat")?.row.id).toBe("wheat-pale");
+      expect(lookupMalt("Flaked Wheat")).toBeUndefined();
+    }
   });
 });
 
@@ -230,5 +264,59 @@ describe("classifyByKeyword", () => {
 
   it("returns undefined for something that is not a malt", () => {
     expect(classifyByKeyword("Calcium Chloride")).toBeUndefined();
+  });
+
+  it("classifies melanoidin as its own class, not kilned", () => {
+    // The guide gives melanoidin its own row/class. Falling through to kilned
+    // meant a keyword-classified "Melanoidin Malt" could never substitute for
+    // a guide-resolved one, because rule 1 blocks cross-class swaps.
+    expect(classifyByKeyword("Melanoidin Malt")).toBe("melanoidin");
+    expect(classifyByKeyword("Melanoidin")).toBe("melanoidin");
+    expect(canSubstitute(
+      resolveMaltProfile("Weyermann Melanoidin")!,
+      resolveMaltProfile("Some Melanoidin Malt", 70)!
+    )).toBe(true);
+  });
+
+  it("matches keywords on whole words, never mid-word", () => {
+    // Regression: a substring check made every one of these a malt — "black"
+    // inside "blackcurrant" and "blackberry", "wheat" inside "buckwheat" —
+    // feeding fruit and adjuncts into the substitution ranking.
+    expect(classifyByKeyword("Blackcurrant Puree")).toBeUndefined();
+    expect(classifyByKeyword("Blackberry Extract")).toBeUndefined();
+    expect(classifyByKeyword("Buckwheat Honey")).toBeUndefined();
+    // The words themselves still classify.
+    expect(classifyByKeyword("Chocolate Malt")).toBe("roasted");
+    expect(classifyByKeyword("Black Malt")).toBe("roasted");
+  });
+
+  it("still matches multi-word keywords, but only across consecutive tokens", () => {
+    expect(classifyByKeyword("Roasted Barley")).toBe("roasted");
+    expect(classifyByKeyword("Pale Ale Malt")).toBe("base");
+    expect(classifyByKeyword("Golden Promise")).toBe("base");
+    expect(classifyByKeyword("Château Special B")).toBe("caramel");
+    expect(classifyByKeyword("Simpsons Brown Malt")).toBe("kilned");
+    // "pale ale" must not match across the intervening word.
+    expect(classifyByKeyword("Pale Golden Ale")).toBeUndefined();
+  });
+
+  it("lets a wheat token win over the roast keywords", () => {
+    // The guide has wheat-chocolate, wheat-caramel and wheat-black rows, so a
+    // wheat malt stays a wheat malt however dark it is — class order used to
+    // hand "Chocolate Wheat Malt" to roasted, which then offered barley
+    // chocolate malt as a substitute for it.
+    expect(classifyByKeyword("Chocolate Wheat Malt")).toBe("wheat");
+    expect(classifyByKeyword("Roasted Wheat")).toBe("wheat");
+    expect(classifyByKeyword("Black Wheat Malt")).toBe("wheat");
+    // ... while non-wheat names keep their old class.
+    expect(classifyByKeyword("Chocolate Malt")).toBe("roasted");
+    expect(classifyByKeyword("Roasted Barley")).toBe("roasted");
+  });
+
+  it("classifies inflected and compounded forms via token prefixes", () => {
+    expect(classifyByKeyword("Oatmeal Malt")).toBe("adjunct-grain");
+    expect(classifyByKeyword("Dextrine Malt")).toBe("kilned");
+    expect(classifyByKeyword("Weizenmalz Hell")).toBe("wheat");
+    expect(classifyByKeyword("Pilsener Malt")).toBe("base");
   });
 });

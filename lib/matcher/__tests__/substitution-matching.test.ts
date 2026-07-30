@@ -140,6 +140,30 @@ describe("malt substitution through matchRecipes", () => {
     expect(match.substitutes).toBeUndefined();
   });
 
+  // The whole point of a substitution is that you do not have to buy anything:
+  // an `equivalent` line has no shortfall, so it must not reappear as a line to
+  // buy. A regression here would send the user shopping for a malt they were
+  // told they could brew without.
+  it("keeps a malt satisfied by an equivalent off the shopping list", () => {
+    const candidate = matchOne(
+      recipe([
+        grain("Weyermann Pilsner", 4),
+        grain("Weyermann Caramunich Type 2", 1),
+        grain("Crisp Chocolate Malt", 0.2), // no equivalent in stock
+      ]),
+      [malt("Weyermann Pilsner", 10), malt("Crisp Crystal 120", 5)]
+    );
+    const substituted = candidate.ingredientMatches[1]!;
+
+    expect(substituted.matchedBy).toBe("equivalent");
+    expect(substituted.shortfall).toBe(0);
+    // The genuinely missing malt still has to be bought — this asserts the
+    // shopping list was built (not empty for an unrelated reason).
+    expect(candidate.shoppingList.map((item) => item.name)).toEqual([
+      "Crisp Chocolate Malt",
+    ]);
+  });
+
   it("uses the recipe style to pick between equally-close equivalents", () => {
     const candidate = matchOne(
       recipe([grain("Crisp Crystal 120", 1)], { style: "Belgian Dubbel" }),
