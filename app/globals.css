@@ -115,6 +115,18 @@
   backdrop-filter: blur(14px);
 }
 
+/*
+ * Skip layout/paint for off-screen recipe cards (issue #39). Applied to the
+ * card only, never to a bucket <section>, so every bucket <h2> stays outside a
+ * skipped subtree and the heading-based overview survives. Deliberately not
+ * list virtualisation: this keeps every card in the DOM, the accessibility
+ * tree, tab order and find-in-page.
+ */
+@utility card-defer {
+  content-visibility: auto;
+  contain-intrinsic-size: auto 260px;
+}
+
 /* Primary CTA gradient (amber → deep amber). */
 @utility brand-gradient {
   background: linear-gradient(150deg, #f5a623, #e8531a);

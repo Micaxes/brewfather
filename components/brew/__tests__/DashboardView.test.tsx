@@ -106,8 +106,10 @@ describe("DashboardView", () => {
   it("shows matched / short / missing ingredient states and the score", () => {
     render(<DashboardView state={{ status: "ready", data: populated }} />);
 
-    expect(screen.getByText("In stock:")).toBeInTheDocument();
-    expect(screen.getByText("Short:")).toBeInTheDocument();
+    // Since #39 an unsatisfied ingredient appears twice: once as a blocker row
+    // in the always-visible summary, once in the full list inside <details>.
+    expect(screen.getAllByText("In stock:").length).toBeGreaterThanOrEqual(1);
+    expect(screen.getAllByText("Short:").length).toBeGreaterThanOrEqual(1);
     expect(screen.getAllByText("Missing:").length).toBeGreaterThanOrEqual(1);
     expect(screen.getByText("88%")).toBeInTheDocument();
   });

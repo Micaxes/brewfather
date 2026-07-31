@@ -36,7 +36,8 @@ const SUBSTITUTED_META = {
   className: "text-teal-600 dark:text-teal-400",
 };
 
-function detail(match: IngredientMatch): string {
+/** The right-hand quantity text for an ingredient row. */
+export function ingredientDetail(match: IngredientMatch): string {
   const { status, have, need, ingredient } = match;
   if (status === "short") {
     return `${formatQuantity(have, ingredient.unit)} of ${formatQuantity(need, ingredient.unit)}`;
@@ -45,6 +46,16 @@ function detail(match: IngredientMatch): string {
     return `need ${formatQuantity(need, ingredient.unit)}`;
   }
   return formatQuantity(need, ingredient.unit);
+}
+
+/**
+ * Icon + label for a match, accounting for substitution. Shared so the
+ * collapsed summary (issue #39) and the full list cannot drift apart.
+ */
+export function ingredientStatusMeta(match: IngredientMatch) {
+  return match.matchedBy === "equivalent"
+    ? SUBSTITUTED_META
+    : STATUS_META[match.status];
 }
 
 function SubstituteRow({
@@ -103,7 +114,7 @@ export function IngredientList({ matches }: { matches: IngredientMatch[] }) {
     <ul className="flex flex-col gap-1.5">
       {matches.map((match, index) => {
         const substituted = match.matchedBy === "equivalent";
-        const meta = substituted ? SUBSTITUTED_META : STATUS_META[match.status];
+        const meta = ingredientStatusMeta(match);
         const { Icon } = meta;
         const substitutes = match.substitutes ?? [];
         const substitutesLabel = substituted
@@ -123,7 +134,7 @@ export function IngredientList({ matches }: { matches: IngredientMatch[] }) {
               <span className="flex-1 truncate">{match.ingredient.name}</span>
               <span className="sr-only">{meta.label}:</span>
               <span className="text-muted-foreground tabular-nums">
-                {detail(match)}
+                {ingredientDetail(match)}
               </span>
             </div>
 
