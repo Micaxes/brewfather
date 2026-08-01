@@ -41,6 +41,91 @@ function matchOne(recipes: RecipeDetail, inventory: InventoryItem[]) {
   return result.candidates[0]!;
 }
 
+describe("duplicate inventory rows", () => {
+  // Brewfather leaves catalog entries in the inventory at zero, so the same
+  // malt appears twice — once empty, once stocked. Which one a recipe hits was
+  // decided by whichever _id it happened to carry: "Oats, Flaked" read
+  // "missing" in one recipe and "in stock" in another, off the same inventory.
+  const empty: InventoryItem = {
+    id: "default-empty",
+    name: "Oats, Flaked",
+    category: "fermentable",
+    amount: 0,
+    unit: "kg",
+  };
+  const stocked: InventoryItem = {
+    id: "default-stocked",
+    name: "Oats, Flaked",
+    category: "fermentable",
+    amount: 8.95,
+    unit: "kg",
+  };
+
+  it("prefers the stocked twin when the id points at an empty row", () => {
+    const candidate = matchOne(
+      recipe([
+        { id: "default-empty", name: "Oats, Flaked", category: "fermentable", amount: 0.41, unit: "kg" },
+      ]),
+      [empty, stocked]
+    );
+    const match = candidate.ingredientMatches[0]!;
+
+    expect(match.status).toBe("satisfied");
+    expect(match.inventoryItem?.id).toBe("default-stocked");
+    expect(match.have).toBe(8.95);
+  });
+
+  it("prefers the stocked twin on the fuzzy-name path too", () => {
+    const candidate = matchOne(
+      recipe([grain("Oats, Flaked", 0.41)]),
+      [empty, stocked]
+    );
+
+    expect(candidate.ingredientMatches[0]!.status).toBe("satisfied");
+  });
+
+  it("picks the fullest twin when several hold stock", () => {
+    const candidate = matchOne(
+      recipe([grain("Oats, Flaked", 0.41)]),
+      [empty, { ...stocked, id: "small", amount: 0.2 }, stocked]
+    );
+
+    expect(candidate.ingredientMatches[0]!.inventoryItem?.id).toBe("default-stocked");
+  });
+
+  it("stays missing when every twin is empty", () => {
+    const candidate = matchOne(
+      recipe([grain("Oats, Flaked", 0.41)]),
+      [empty, { ...empty, id: "other-empty" }]
+    );
+
+    expect(candidate.ingredientMatches[0]!.status).toBe("missing");
+  });
+
+  it("never redirects to a different ingredient", () => {
+    const candidate = matchOne(
+      recipe([grain("Oats, Flaked", 0.41)]),
+      [empty, malt("Pilsner Malt", 25)]
+    );
+
+    expect(candidate.ingredientMatches[0]!.inventoryItem?.name).not.toBe("Pilsner Malt");
+  });
+
+  it("respects stock already reserved by an earlier line", () => {
+    // Two lines, one stocked twin holding 8.95 kg: the second must not be
+    // handed stock the first already claimed.
+    const candidate = matchOne(
+      recipe([grain("Oats, Flaked", 8), grain("Oats, Flaked", 8)]),
+      [empty, stocked]
+    );
+    const [first, second] = candidate.ingredientMatches;
+
+    // Duplicate lines merge into one 16 kg requirement, which 8.95 cannot meet.
+    expect(first!.status).toBe("short");
+    expect(second).toBeUndefined();
+  });
+});
+
 describe("malt substitution through matchRecipes", () => {
   it("satisfies a missing malt with an in-stock equivalent", () => {
     const candidate = matchOne(
