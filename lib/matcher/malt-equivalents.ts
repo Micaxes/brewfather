@@ -59,6 +59,14 @@ export interface MaltRow {
    * distinctly harsher, grain-forward character. Directional on purpose.
    */
   unmalted?: boolean;
+  /**
+   * Cereal species, for rows whose `maltClass` is too coarse to separate them.
+   * Every adjunct-grain row shares one class, but rye, spelt and oats are not
+   * interchangeable and their EBC bands overlap, so class + colour alone would
+   * happily swap rye into an oatmeal stout. When both rows declare a grain,
+   * they must agree.
+   */
+  grain?: string;
 }
 
 /** Guide rule 2: EBC bands within ±10% are interchangeable. */
@@ -460,6 +468,7 @@ export const MALT_ROWS: readonly MaltRow[] = [
   {
     id: "grain-rye",
     maltClass: "adjunct-grain",
+    grain: "rye",
     malts: [
       { name: "Malt de Seigle", ebcMin: 4, ebcMax: 9 },
       { name: "Château Seigle", ebcMin: 4, ebcMax: 10 },
@@ -472,6 +481,7 @@ export const MALT_ROWS: readonly MaltRow[] = [
   {
     id: "grain-spelt",
     maltClass: "adjunct-grain",
+    grain: "spelt",
     malts: [
       { name: "Château Épeautre", ebcMin: 3, ebcMax: 7 },
       { name: "BEST Spelt", ebcMin: 3, ebcMax: 6 },
@@ -481,12 +491,46 @@ export const MALT_ROWS: readonly MaltRow[] = [
   {
     id: "grain-oat",
     maltClass: "adjunct-grain",
+    grain: "oat",
+    // Malted oats keep their diastatic power; the raw flakes below do not, so
+    // the two never swap for each other in either direction.
+    neverMatchRows: ["grain-oat-unmalted"],
     malts: [
       { name: "Château Avoine", ebcMin: 2, ebcMax: 4 },
       { name: "Weyermann Oat", ebcMin: 3, ebcMax: 6 },
       { name: "Crisp Oat Malt", ebcMin: 3, ebcMax: 7 },
       { name: "Simpsons Oat Malt", ebcMin: 3, ebcMax: 7 },
       { name: "Fawcett Oat Malt", ebcMin: 3, ebcMax: 7 },
+    ],
+  },
+  {
+    /*
+     * Unmalted oats. Not in the source guide — added because every form of raw
+     * oat (flaked, rolled, torrefied, steel-cut, quick) is the same thing in
+     * the mash: unmalted starch added for body, mouthfeel and haze, always
+     * mashed alongside a base malt that supplies the enzymes. Brewers and
+     * suppliers use the names interchangeably, and one library routinely
+     * carries several spellings of the same sack.
+     *
+     * Kept apart from `grain-oat` (malted) in both directions: oat malt is
+     * malted and behaves differently, so neither stands in for the other.
+     */
+    id: "grain-oat-unmalted",
+    maltClass: "adjunct-grain",
+    grain: "oat",
+    unmalted: true,
+    neverMatchRows: ["grain-oat"],
+    malts: [
+      { name: "Oats, Flaked", ebcMin: 2, ebcMax: 5 },
+      { name: "Flaked Oats", ebcMin: 2, ebcMax: 5 },
+      { name: "Flaked Torrefied Oats", ebcMin: 2, ebcMax: 5 },
+      { name: "Torrefied Oats", ebcMin: 2, ebcMax: 5 },
+      { name: "Rolled Oats", ebcMin: 2, ebcMax: 5 },
+      { name: "Oat Flakes", ebcMin: 2, ebcMax: 5 },
+      { name: "Steel Cut Oats", ebcMin: 2, ebcMax: 5 },
+      { name: "Quick Oats", ebcMin: 2, ebcMax: 5 },
+      { name: "Instant Oats", ebcMin: 2, ebcMax: 5 },
+      { name: "Oatmeal", ebcMin: 2, ebcMax: 5 },
     ],
   },
 ];
@@ -804,4 +848,13 @@ export function isBlockedPair(a: ResolvedMalt, b: ResolvedMalt): boolean {
 export function mayStandInFor(wanted: ResolvedMalt, candidate: ResolvedMalt): boolean {
   if (!candidate.row.unmalted) return true;
   return candidate.row.id === wanted.row.id;
+}
+
+/**
+ * Whether two rows are the same cereal. Rows that declare no grain (barley
+ * malts, where the class already separates them) never conflict.
+ */
+export function sameGrain(a: ResolvedMalt, b: ResolvedMalt): boolean {
+  if (a.row.grain === undefined || b.row.grain === undefined) return true;
+  return a.row.grain === b.row.grain;
 }

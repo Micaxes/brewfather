@@ -85,13 +85,25 @@ pilsner. Matches are also whole-word, so `Blackcurrant` cannot resolve via
 that don't (`Caramel/Crystal Malt 110`, `Oats, Flaked`, `Chateau Crystal`)
 simply behave as they did before this feature.
 
-Unmalted adjuncts — flaked oats, flaked barley, torrefied wheat, `Wheat
-Unmalted` — are **not** mapped onto their malted counterparts. Like Roasted
-Barley they lack diastatic power, so treating them as equivalents would be
-wrong in the same direction rule 5 warns about. A name carrying an unmalted
-token (`unmalted`, `flaked`/`flakes`, `torrefied`, `rolled`, `raw`, `green`)
-never resolves to a malted row. The tokens are matched **per whole word**: as a
-raw substring, `raw` hides inside "Weyermann Ca·raw·heat".
+Unmalted adjuncts — flaked barley, torrefied wheat, `Wheat Unmalted` — are
+**not** mapped onto their malted counterparts. Like Roasted Barley they lack
+diastatic power, so treating them as equivalents would be wrong in the same
+direction rule 5 warns about. A name carrying an unmalted token (`unmalted`,
+`flaked`/`flakes`, `torrefied`, `rolled`, `raw`, `green`) never resolves to a
+malted row. The tokens are matched **per whole word**: as a raw substring,
+`raw` hides inside "Weyermann Ca·raw·heat".
+
+**Unmalted oats are the one group that maps to itself.** Not in the source
+guide — added because every form of raw oat (flaked, rolled, torrefied,
+steel-cut, quick, oatmeal) is the same thing in the mash: unmalted starch for
+body, mouthfeel and haze, always mashed alongside a base malt that supplies the
+enzymes. Brewers and suppliers use the names interchangeably and one library
+routinely carries several spellings of the same sack. They stay separate from
+**oat malt** in both directions, which is malted and does carry enzymes.
+
+Because `adjunct-grain` is one class covering rye, spelt and oats — whose EBC
+bands overlap — rows carry a `grain` discriminator. Class and colour alone
+would happily swap rye into an oatmeal stout.
 
 **"Colour is close" means one of two things**, and the justification says
 which. Bands that *overlap* can still be far apart at the midpoint — Pale Ale

@@ -32,6 +32,7 @@ import {
   lookupMalt,
   mayStandInFor,
   sameEquivalenceRow,
+  sameGrain,
 } from "@/lib/matcher/malt-equivalents";
 import { convertAmount } from "@/lib/matcher/normalize";
 
@@ -87,6 +88,8 @@ export function canSubstitute(
     if (isBlockedPair(wanted.resolved, candidate.resolved)) return false;
     // Directional: unmalted grain never stands in for a malted one.
     if (!mayStandInFor(wanted.resolved, candidate.resolved)) return false;
+    // "adjunct-grain" covers rye, spelt and oats, whose bands overlap.
+    if (!sameGrain(wanted.resolved, candidate.resolved)) return false;
   }
   return ebcCompatible(wanted, candidate);
 }

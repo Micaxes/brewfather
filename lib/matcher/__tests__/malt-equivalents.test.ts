@@ -15,6 +15,7 @@ import {
   isUnmaltedForm,
   lookupMalt,
   sameEquivalenceRow,
+  sameGrain,
 } from "@/lib/matcher/malt-equivalents";
 import { canSubstitute, resolveMaltProfile } from "@/lib/matcher/substitutions";
 
@@ -156,12 +157,22 @@ describe("unmalted grain never resolves onto a malted row", () => {
     "Wheat Unmalted",
     "Unmalted Wheat",
     "Flaked Wheat",
-    "Rolled Oats",
     "Raw Wheat",
   ])("refuses to resolve %s", (name) => {
     expect(isUnmaltedForm(name)).toBe(true);
     expect(lookupMalt(name)).toBeUndefined();
   });
+
+  it.each(["Rolled Oats", "Oats, Flaked", "Flaked Torrefied Oats"])(
+    "resolves %s only onto the unmalted oat row",
+    (name) => {
+      // Unmalted oats DO resolve — to each other. What they must never do is
+      // land on a malted row.
+      const found = lookupMalt(name);
+      expect(found?.row.id).toBe("grain-oat-unmalted");
+      expect(found?.row.unmalted).toBe(true);
+    }
+  );
 
   it("still resolves Roasted Barley, which is unmalted by definition", () => {
     expect(lookupMalt("Château Roasted Barley")?.row.id).toBe("roasted-barley");
@@ -174,13 +185,47 @@ describe("unmalted grain never resolves onto a malted row", () => {
     }
   });
 
-  it("carries no unmalted marker in any guide entry name", () => {
-    // Proves the guard can never suppress a legitimate resolution.
+  it("carries no unmalted marker on any malted row", () => {
+    // Proves the guard can never suppress a legitimate malt resolution. Rows
+    // that are themselves unmalted are exempt — their names say so on purpose.
     for (const row of MALT_ROWS) {
+      if (row.unmalted) continue;
       for (const entry of row.malts) {
         expect(isUnmaltedForm(entry.name)).toBe(false);
       }
     }
+  });
+});
+
+describe("adjunct grains do not cross-substitute", () => {
+  it("keeps rye, spelt and oats apart despite one shared class", () => {
+    const rye = lookupMalt("Weyermann Pale Rye")!;
+    const spelt = lookupMalt("Weyermann Spelt")!;
+    const oat = lookupMalt("Weyermann Oat")!;
+
+    // Same maltClass and overlapping EBC bands — only the grain keeps them apart.
+    expect(rye.row.maltClass).toBe(spelt.row.maltClass);
+    expect(sameGrain(rye, spelt)).toBe(false);
+    expect(sameGrain(rye, oat)).toBe(false);
+    expect(sameGrain(oat, oat)).toBe(true);
+  });
+
+  it("treats every unmalted oat form as one ingredient", () => {
+    const flaked = lookupMalt("Oats, Flaked")!;
+    const rolled = lookupMalt("Gladfield Rolled Oats (BLM)")!;
+    const torrefied = lookupMalt("Flaked Torrefied Oats")!;
+
+    expect(rolled.row.id).toBe(flaked.row.id);
+    expect(torrefied.row.id).toBe(flaked.row.id);
+    expect(sameEquivalenceRow(flaked, rolled)).toBe(true);
+  });
+
+  it("never swaps oat malt for raw oats in either direction", () => {
+    const oatMalt = lookupMalt("Crisp Oat Malt")!;
+    const flaked = lookupMalt("Oats, Flaked")!;
+
+    expect(isBlockedPair(oatMalt, flaked)).toBe(true);
+    expect(isBlockedPair(flaked, oatMalt)).toBe(true);
   });
 });
 
