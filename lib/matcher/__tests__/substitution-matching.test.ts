@@ -213,7 +213,11 @@ describe("malt substitution through matchRecipes", () => {
     expect(second!.status).toBe("missing");
   });
 
-  it("only substitutes fermentables", () => {
+  it("proposes a chart-sanctioned hop but never resolves the line with it", () => {
+    // The hop chart lists Mosaic as a substitute for Citra, so it is offered —
+    // but a hop is never auto-applied: RecipeIngredient carries no use/time, so
+    // we cannot tell a bittering charge from a whirlpool addition, and the
+    // right weight adjustment differs between them. The brewer decides.
     const candidate = matchOne(
       recipe([], {
         hops: [{ id: "", name: "Citra", category: "hop", amount: 50, unit: "g" }],
@@ -222,7 +226,22 @@ describe("malt substitution through matchRecipes", () => {
     );
     const match = candidate.ingredientMatches[0]!;
 
-    expect(match.substitutes).toBeUndefined();
+    expect(match.substitutes?.[0]?.inventoryItem.name).toBe("Mosaic");
+    expect(match.status).toBe("missing");
+    expect(match.matchedBy).toBeUndefined();
+    // Weight is never pre-scaled by alpha — that is only right for bittering.
+    expect(match.substitutes?.[0]?.doseFactor).toBe(1);
+  });
+
+  it("offers no hop the chart does not sanction", () => {
+    const candidate = matchOne(
+      recipe([], {
+        hops: [{ id: "", name: "Citra", category: "hop", amount: 50, unit: "g" }],
+      }),
+      [{ id: "h1", name: "Saaz", category: "hop", amount: 200, unit: "g" }]
+    );
+
+    expect(candidate.ingredientMatches[0]!.substitutes).toBeUndefined();
   });
 
   // The whole point of a substitution is that you do not have to buy anything:
