@@ -14,6 +14,7 @@ import { createBrewfatherClient } from "@/lib/brewfather/client";
 import { classifyUpstreamError } from "@/lib/brewfather/errors";
 import { getUserBrewfatherCredentials } from "@/lib/brewfather/user-credentials";
 import { matchRecipes } from "@/lib/matcher";
+import { getAcceptedSubstitutions } from "@/lib/brewfather/accepted-substitutions";
 
 // Resolves the user's key, loads data, and runs the matcher, so it must run on
 // the Node.js runtime and must never be HTTP-cached (freshness is our own cache).
@@ -64,6 +65,9 @@ export async function GET(request: Request) {
 
   try {
     const refresh = new URL(request.url).searchParams.get("refresh") === "true";
+    // Stand-ins the brewer accepted; they satisfy their line and so change
+    // readiness. Empty when migration 0005 has not been applied.
+    const accepted = await getAcceptedSubstitutions();
 
     if (refresh) {
       // Manual-sync cooldown: reject rapid re-syncs before they reach
@@ -77,7 +81,7 @@ export async function GET(request: Request) {
         const cached = await getFreshCachedData();
         if (cached) {
           const body: BrewCandidatesResponse = {
-            ...matchRecipes(cached),
+            ...matchRecipes(cached, { accepted }),
             syncedAt: lastSyncedAt,
             cooldownSeconds: Math.min(
               Math.max(1, Math.ceil((SYNC_COOLDOWN_MS - elapsedMs) / 1000)),
@@ -107,7 +111,10 @@ export async function GET(request: Request) {
       data = fresh;
     }
 
-    const body: BrewCandidatesResponse = { ...matchRecipes(data), syncedAt };
+    const body: BrewCandidatesResponse = {
+      ...matchRecipes(data, { accepted }),
+      syncedAt,
+    };
     return NextResponse.json(body);
   } catch (error) {
     const errorCode = classifyUpstreamError(error);

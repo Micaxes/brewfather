@@ -2,6 +2,13 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 
+import type { IngredientMatch } from "@/lib/matcher/types";
+import type { SubstituteActions } from "@/components/brew/IngredientList";
+import {
+  acceptSubstitutionAction,
+  revokeSubstitutionAction,
+} from "@/app/(dashboard)/dashboard/substitution-actions";
+
 import type {
   BrewCandidatesResponse,
   UpstreamErrorCode,
@@ -49,6 +56,7 @@ const SUCCESS_FLASH_MS = 1800;
  */
 export function DashboardClient() {
   const [state, setState] = useState<DashboardState>({ status: "loading" });
+  const [pendingKeys, setPendingKeys] = useState<ReadonlySet<string>>(new Set());
   const [syncing, setSyncing] = useState(false);
   const [syncError, setSyncError] = useState<string | null>(null);
   const [justSynced, setJustSynced] = useState(false);
@@ -146,5 +154,86 @@ export function DashboardClient() {
     onSync: () => void refresh(),
   };
 
-  return <DashboardView state={state} sync={sync} />;
+  /**
+   * Persist an acceptance, then reload the board so readiness reflects it.
+   *
+   * Deliberately re-reads without `?refresh=true`: the acceptance changes how
+   * the cached Brewfather data is *matched*, not the data itself, so there is
+   * no reason to spend a Brewfather call (500/hr) or trip the sync cooldown.
+   */
+  const applyAndReload = useCallback(
+    async (key: string, run: () => Promise<{ error?: string }>) => {
+      setPendingKeys((keys) => new Set(keys).add(key));
+      setSyncError(null);
+      try {
+        const result = await run();
+        if (result.error) {
+          setSyncError(result.error);
+          return;
+        }
+        const res = await fetch("/api/brew-candidates");
+        if (res.ok) {
+          setState({ status: "ready", data: await res.json() });
+        }
+      } catch {
+        setSyncError("Could not save that. Please try again.");
+      } finally {
+        setPendingKeys((keys) => {
+          const next = new Set(keys);
+          next.delete(key);
+          return next;
+        });
+      }
+    },
+    []
+  );
+
+  const actions: SubstituteActions = {
+    pending: pendingKeys,
+    onAccept: (match, substitute) => {
+      const recipeId = recipeIdFor(state, match);
+      if (!recipeId) return;
+      void applyAndReload(rowKeyFor(match), () =>
+        acceptSubstitutionAction({
+          recipeId,
+          category: match.ingredient.category,
+          ingredientName: match.ingredient.name,
+          inventoryItemId: substitute.inventoryItem.id,
+          inventoryItemName: substitute.inventoryItem.name,
+        })
+      );
+    },
+    onRevoke: (match) => {
+      const recipeId = recipeIdFor(state, match);
+      if (!recipeId) return;
+      void applyAndReload(rowKeyFor(match), () =>
+        revokeSubstitutionAction({
+          recipeId,
+          category: match.ingredient.category,
+          ingredientName: match.ingredient.name,
+        })
+      );
+    },
+  };
+
+  return <DashboardView state={state} sync={sync} actions={actions} />;
+}
+
+function rowKeyFor(match: IngredientMatch): string {
+  return `${match.ingredient.category} ${match.ingredient.name}`;
+}
+
+/**
+ * Which recipe an ingredient row belongs to. The row itself carries no recipe
+ * id, so find the candidate holding this exact match object — identity is
+ * reliable here because both come from the same response.
+ */
+function recipeIdFor(
+  state: DashboardState,
+  match: IngredientMatch
+): string | undefined {
+  if (state.status !== "ready") return undefined;
+  return state.data.candidates.find((candidate) =>
+    candidate.ingredientMatches.includes(match)
+  )?.recipe.id;
 }

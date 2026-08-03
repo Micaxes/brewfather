@@ -4,7 +4,10 @@ import type { RecipeMatch } from "@/lib/api-contract";
 import { cn } from "@/lib/utils";
 import { BUCKET_META } from "@/components/brew/buckets";
 import { formatScore } from "@/components/brew/format";
-import { IngredientList } from "@/components/brew/IngredientList";
+import {
+  IngredientList,
+  type SubstituteActions,
+} from "@/components/brew/IngredientList";
 import { RecipeSummary } from "@/components/brew/RecipeSummary";
 import { ShoppingList } from "@/components/brew/ShoppingList";
 
@@ -25,7 +28,13 @@ import { ShoppingList } from "@/components/brew/ShoppingList";
  * nested heading. Keeping the name outside sidesteps both and leaves the
  * heading list — a screen-reader user's scanning surface — intact.
  */
-export function RecipeCard({ match }: { match: RecipeMatch }) {
+export function RecipeCard({
+  match,
+  actions,
+}: {
+  match: RecipeMatch;
+  actions?: SubstituteActions;
+}) {
   const { recipe, bucket, score, ingredientMatches, shoppingList } = match;
   const meta = recipe.style
     ? recipe.batchSize
@@ -67,7 +76,7 @@ export function RecipeCard({ match }: { match: RecipeMatch }) {
         </summary>
 
         <div className="mt-3 flex flex-col gap-3">
-          <IngredientList matches={ingredientMatches} />
+          <IngredientList matches={ingredientMatches} {...(actions ? { actions } : {})} />
           {shoppingList.length > 0 ? <ShoppingList items={shoppingList} /> : null}
         </div>
       </details>
