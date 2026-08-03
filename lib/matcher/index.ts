@@ -31,6 +31,12 @@ import {
 export interface MatchOptions {
   /** Timestamp for `generatedAt` (defaults to now). Injectable for determinism. */
   now?: Date;
+  /**
+   * Substitutions the brewer accepted, keyed `recipeId ingredientKey`. An
+   * acceptance satisfies the line outright and therefore moves readiness.
+   * See `lib/brewfather/accepted-substitutions.ts`.
+   */
+  accepted?: Map<string, { inventoryItemId: string; inventoryItemName: string }>;
   /** Fuse.js fuzzy-name threshold override (defaults to {@link FUZZY_NAME_THRESHOLD}). */
   fuzzyThreshold?: number;
 }
@@ -54,7 +60,7 @@ export function matchRecipes(
   const warnings = new Set<string>();
 
   const candidates = input.recipes.map((recipe) =>
-    evaluateRecipe(recipe, index, warnings, input.inventory)
+    evaluateRecipe(recipe, index, warnings, input.inventory, options.accepted)
   );
   candidates.sort(compareCandidates);
 
@@ -70,15 +76,26 @@ function evaluateRecipe(
   recipe: RecipeDetail,
   index: ReturnType<typeof buildInventoryIndex>,
   warnings: Set<string>,
-  inventory: InventoryItem[]
+  inventory: InventoryItem[],
+  accepted?: MatchOptions["accepted"]
 ): RecipeMatch {
   // Cleaned pipeline: drop junk `items` rows, merge duplicate lines, then
   // match everything against the shared inventory index. Passing the inventory
   // enables the malt-substitution pass (docs/malt-substitutions.md).
   const prepared = prepareIngredients(recipe);
+  // Acceptances are stored per recipe; narrow the global map to this one.
+  const forRecipe = accepted
+    ? new Map(
+        [...accepted]
+          .filter(([key]) => key.startsWith(`${recipe.id} `))
+          .map(([key, value]) => [key.slice(recipe.id.length + 1), value])
+      )
+    : undefined;
+
   const ingredientMatches = matchIngredients(prepared.all, index, {
     inventory,
     ...(recipe.style !== undefined ? { style: recipe.style } : {}),
+    ...(forRecipe && forRecipe.size > 0 ? { accepted: forRecipe } : {}),
   });
 
   for (const match of ingredientMatches) {

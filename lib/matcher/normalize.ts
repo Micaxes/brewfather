@@ -124,3 +124,15 @@ export function comparableMagnitude(amount: number, unit: Unit): number {
   const conversion = UNIT_CONVERSIONS[normalizeUnit(unit)];
   return conversion ? amount * conversion.factor : amount;
 }
+
+/**
+ * Stable identity for a recipe line, used to key accepted substitutions.
+ *
+ * Brewfather recipe ingredients frequently carry an empty `_id`, so the
+ * normalized name is what can actually be keyed on; the category keeps a hop
+ * and a malt of the same name apart. Lives here rather than beside the
+ * database code so the matcher stays pure.
+ */
+export function ingredientKey(category: string, name: string): string {
+  return `${category} ${normalizeName(name)}`;
+}

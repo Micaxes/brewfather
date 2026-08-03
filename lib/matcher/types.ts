@@ -24,8 +24,14 @@ export type MatchStatus = "satisfied" | "short" | "missing";
  * considers interchangeable was — the recipe counts as satisfied, and the UI
  * says so rather than implying the exact malt is on the shelf.
  * See `docs/malt-substitutions.md`.
+ *
+ * `accepted` means the brewer explicitly chose this stand-in for this recipe.
+ * It outranks every automatic path: a person looking at their own shelf knows
+ * things the engine does not, which is the only way a hop line can ever be
+ * satisfied by a substitute (a recipe line carries no use/time, so we cannot
+ * tell a bittering charge from a whirlpool addition).
  */
-export type MatchMethod = "id" | "name" | "equivalent";
+export type MatchMethod = "id" | "name" | "equivalent" | "accepted";
 
 /** An in-inventory stand-in for a malt, with the reason it was proposed. */
 export interface MaltSubstitute {

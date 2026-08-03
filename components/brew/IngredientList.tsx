@@ -53,7 +53,7 @@ export function ingredientDetail(match: IngredientMatch): string {
  * collapsed summary (issue #39) and the full list cannot drift apart.
  */
 export function ingredientStatusMeta(match: IngredientMatch) {
-  return match.matchedBy === "equivalent"
+  return match.matchedBy === "equivalent" || match.matchedBy === "accepted"
     ? SUBSTITUTED_META
     : STATUS_META[match.status];
 }
@@ -62,15 +62,33 @@ function SubstituteRow({
   substitute,
   unit,
   inUse,
+  onAccept,
+  pending,
 }: {
   substitute: MaltSubstitute;
   unit: string;
   inUse: boolean;
+  onAccept?: () => void;
+  pending?: boolean;
 }) {
+  const name = onAccept ? (
+    <button
+      type="button"
+      onClick={onAccept}
+      disabled={pending}
+      className="rounded font-medium underline decoration-dotted underline-offset-2 hover:text-teal-bright focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring disabled:opacity-60"
+      aria-label={`Use ${substitute.inventoryItem.name} instead`}
+    >
+      {substitute.inventoryItem.name}
+    </button>
+  ) : (
+    <span className="font-medium">{substitute.inventoryItem.name}</span>
+  );
+
   return (
     <li className="flex flex-col gap-0.5">
       <div className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5">
-        <span className="font-medium">{substitute.inventoryItem.name}</span>
+        {name}
         <span className="text-muted-foreground text-xs tabular-nums">
           {formatQuantity(substitute.have, unit)} on hand
         </span>
@@ -102,8 +120,23 @@ function SubstituteRow({
   );
 }
 
+export interface SubstituteActions {
+  /** Accept this stand-in for this ingredient; readiness recalculates. */
+  onAccept: (match: IngredientMatch, substitute: MaltSubstitute) => void;
+  /** Undo an acceptance, returning the line to whatever the engine infers. */
+  onRevoke: (match: IngredientMatch) => void;
+  /** Ingredient keys with a request in flight, for disabling their controls. */
+  pending: ReadonlySet<string>;
+}
+
 /** Per-ingredient availability for a recipe: matched / short / missing. */
-export function IngredientList({ matches }: { matches: IngredientMatch[] }) {
+export function IngredientList({
+  matches,
+  actions,
+}: {
+  matches: IngredientMatch[];
+  actions?: SubstituteActions;
+}) {
   if (matches.length === 0) {
     return (
       <p className="text-muted-foreground text-sm">No ingredients listed.</p>
@@ -113,13 +146,17 @@ export function IngredientList({ matches }: { matches: IngredientMatch[] }) {
   return (
     <ul className="flex flex-col gap-1.5">
       {matches.map((match, index) => {
-        const substituted = match.matchedBy === "equivalent";
+        const accepted = match.matchedBy === "accepted";
+        const substituted = match.matchedBy === "equivalent" || accepted;
+        const rowKey = `${match.ingredient.category} ${match.ingredient.name}`;
         const meta = ingredientStatusMeta(match);
         const { Icon } = meta;
         const substitutes = match.substitutes ?? [];
-        const substitutesLabel = substituted
-          ? "Substituted from your inventory"
-          : "Substitutes in your inventory";
+        const substitutesLabel = accepted
+          ? "You accepted this swap"
+          : substituted
+            ? "Substituted from your inventory"
+            : "Substitutes in your inventory";
 
         return (
           <li
@@ -157,21 +194,41 @@ export function IngredientList({ matches }: { matches: IngredientMatch[] }) {
                 >
                   {substitutesLabel}
                 </p>
+                {accepted && actions ? (
+                  <button
+                    type="button"
+                    onClick={() => actions.onRevoke(match)}
+                    disabled={actions.pending.has(rowKey)}
+                    className="mb-1 text-[11px] font-semibold text-faint underline decoration-dotted underline-offset-2 hover:text-ink disabled:opacity-60"
+                  >
+                    Undo this swap
+                  </button>
+                ) : null}
                 <ul
                   aria-label={`${substitutesLabel} for ${match.ingredient.name}`}
                   className="flex flex-col gap-1.5"
                 >
-                  {substitutes.map((substitute, subIndex) => (
-                    <SubstituteRow
-                      key={
-                        substitute.inventoryItem.id ||
-                        `${substitute.inventoryItem.name}-${subIndex}`
-                      }
-                      substitute={substitute}
-                      unit={match.ingredient.unit}
-                      inUse={substituted && subIndex === 0}
-                    />
-                  ))}
+                  {substitutes.map((substitute, subIndex) => {
+                    const inUse =
+                      (substituted || accepted) && subIndex === 0;
+                    return (
+                      <SubstituteRow
+                        key={
+                          substitute.inventoryItem.id ||
+                          `${substitute.inventoryItem.name}-${subIndex}`
+                        }
+                        substitute={substitute}
+                        unit={match.ingredient.unit}
+                        inUse={inUse}
+                        {...(actions && !inUse
+                          ? { onAccept: () => actions.onAccept(match, substitute) }
+                          : {})}
+                        {...(actions
+                          ? { pending: actions.pending.has(rowKey) }
+                          : {})}
+                      />
+                    );
+                  })}
                 </ul>
               </div>
             ) : null}

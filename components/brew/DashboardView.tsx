@@ -9,6 +9,7 @@ import type {
 import type { MatchBucket } from "@/lib/matcher/types";
 import { BUCKET_ORDER } from "@/components/brew/buckets";
 import { BucketSection } from "@/components/brew/BucketSection";
+import type { SubstituteActions } from "@/components/brew/IngredientList";
 import { SyncButton, type SyncStatus } from "@/components/brew/SyncButton";
 
 export type DashboardState =
@@ -20,10 +21,12 @@ export type DashboardState =
 export function DashboardView({
   state,
   sync,
+  actions,
 }: {
   state: DashboardState;
   /** Manual-sync wiring for the header's "Sync now" button (ready state only). */
   sync?: SyncStatus;
+  actions?: SubstituteActions;
 }) {
   return (
     <main className="mx-auto flex w-full max-w-5xl animate-[fadein_0.4s_ease] flex-col gap-7">
@@ -32,7 +35,7 @@ export function DashboardView({
         <ErrorState message={state.message} errorCode={state.errorCode} />
       ) : null}
       {state.status === "ready" ? (
-        <ReadyState data={state.data} sync={sync} />
+        <ReadyState {...(actions ? { actions } : {})} data={state.data} sync={sync} />
       ) : null}
     </main>
   );
@@ -41,9 +44,11 @@ export function DashboardView({
 function ReadyState({
   data,
   sync,
+  actions,
 }: {
   data: BrewCandidatesResponse;
   sync?: SyncStatus;
+  actions?: SubstituteActions;
 }) {
   const { candidates, warnings, syncedAt } = data;
 
@@ -94,7 +99,12 @@ function ReadyState({
       <div className="flex flex-col gap-8">
         {BUCKET_ORDER.map((bucket) =>
           grouped[bucket].length > 0 ? (
-            <BucketSection key={bucket} bucket={bucket} matches={grouped[bucket]} />
+            <BucketSection
+              key={bucket}
+              bucket={bucket}
+              matches={grouped[bucket]}
+              {...(actions ? { actions } : {})}
+            />
           ) : null
         )}
       </div>

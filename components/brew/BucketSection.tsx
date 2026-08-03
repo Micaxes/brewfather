@@ -2,14 +2,17 @@ import type { RecipeMatch } from "@/lib/api-contract";
 import type { MatchBucket } from "@/lib/matcher/types";
 import { BUCKET_META } from "@/components/brew/buckets";
 import { RecipeCard } from "@/components/brew/RecipeCard";
+import type { SubstituteActions } from "@/components/brew/IngredientList";
 
 /** One dashboard section (Brew now / Almost / Not yet) with its recipe cards. */
 export function BucketSection({
   bucket,
   matches,
+  actions,
 }: {
   bucket: MatchBucket;
   matches: RecipeMatch[];
+  actions?: SubstituteActions;
 }) {
   const meta = BUCKET_META[bucket];
 
@@ -35,7 +38,8 @@ export function BucketSection({
       {matches.length > 0 ? (
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
           {matches.map((match) => (
-            <RecipeCard key={match.recipe.id || match.recipe.name} match={match} />
+            <RecipeCard
+              {...(actions ? { actions } : {})} key={match.recipe.id || match.recipe.name} match={match} />
           ))}
         </div>
       ) : (
