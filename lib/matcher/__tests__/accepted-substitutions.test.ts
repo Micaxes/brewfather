@@ -80,6 +80,25 @@ describe("accepted substitutions", () => {
     expect(after.bucket).toBe("brew_now");
   });
 
+  it("carries the accepted stand-in so the UI can show and undo it", () => {
+    // Regression: an acceptance used to return with no `substitutes`, and the
+    // dashboard renders both the "you accepted this" label and the Undo
+    // control inside that block — so the swap was invisible and could not be
+    // reversed. Status and score were correct throughout, which is why every
+    // other test here passed.
+    const hop = matchRecipes(
+      { inventory, recipes: [RECIPE] },
+      { accepted: accept("r1", "hop", "Citra", MOSAIC) }
+    ).candidates[0]!.ingredientMatches.find(
+      (m) => m.ingredient.category === "hop"
+    )!;
+
+    expect(hop.substitutes).toHaveLength(1);
+    expect(hop.substitutes?.[0]?.inventoryItem.name).toBe("Mosaic");
+    expect(hop.substitutes?.[0]?.coversNeed).toBe(true);
+    expect(hop.substitutes?.[0]?.justification).toMatch(/You chose Mosaic/);
+  });
+
   it("keeps the acceptance scoped to its own recipe", () => {
     const other: RecipeDetail = { ...RECIPE, id: "r2", name: "Other IPA" };
     const result = matchRecipes(
