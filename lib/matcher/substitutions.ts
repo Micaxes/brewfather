@@ -34,6 +34,14 @@ import {
   sameEquivalenceRow,
   sameGrain,
 } from "@/lib/matcher/malt-equivalents";
+import {
+  type HopEntry,
+  alphaMidpoint,
+  bitternessEquivalentFactor,
+  lookupHop,
+  reverseSubstitutesFor,
+  substitutesFor,
+} from "@/lib/matcher/hop-equivalents";
 import { convertAmount } from "@/lib/matcher/normalize";
 
 /** How many substitutes the UI shows per ingredient. */
@@ -208,6 +216,119 @@ export interface SubstituteOptions {
  * is actionable tonight. Ordering: covers the required amount first, then
  * direct guide equivalents, then colour proximity, then style-origin fit.
  */
+/**
+ * Rank in-inventory stand-ins for a hop the user does not have.
+ *
+ * Driven by the Brouwland chart's own per-variety Substitutes column (see
+ * `docs/hop-substitutions.md`), in printed order — the chart reads as a
+ * preference ranking. Only forward, chart-sanctioned pairings are offered; the
+ * inferred reverse direction is used solely for varieties the chart describes
+ * but has no row for (Ahtanum).
+ *
+ * **Hop substitutes are never auto-applied**, unlike a malt on the same
+ * equivalence row. The reason is a gap in the data we have, not caution for its
+ * own sake: `RecipeIngredient` carries no hop `use`/`time` (see the note in
+ * `score.ts`), so we cannot tell a 60-minute bittering charge from a whirlpool
+ * addition. Swapping at equal weight changes bitterness for the first;
+ * swapping at equal alpha changes aroma for the second. With no way to know
+ * which, the brewer decides — these are proposals, and readiness only moves
+ * once one is accepted.
+ */
+export function findHopSubstitutes(
+  ingredient: RecipeIngredient,
+  inventory: InventoryItem[],
+  options: SubstituteOptions = {}
+): MaltSubstitute[] {
+  if (ingredient.category !== "hop") return [];
+
+  const sanctioned = substitutesFor(ingredient.name);
+  const wanted = lookupHop(ingredient.name);
+  // A variety the chart names only inside other rows' substitute lists has no
+  // row of its own; the reverse direction is all it can tell us.
+  const allowed = sanctioned
+    ? sanctioned.resolved
+    : reverseSubstitutesFor(ingredient.name);
+  if (allowed.length === 0) return [];
+
+  const rank = new Map(allowed.map((entry, index) => [entry.name, index]));
+  const limit = options.limit ?? MAX_SUBSTITUTES;
+
+  const scored = inventory
+    .filter((item) => item.category === "hop")
+    .filter((item) => item !== options.exclude)
+    .flatMap((item) => {
+      const entry = lookupHop(item.name);
+      if (!entry) return [];
+      const order = rank.get(entry.name);
+      if (order === undefined) return [];
+
+      const reserved = options.reserved?.get(item) ?? 0;
+      const available = Math.max(item.amount - reserved, 0);
+      if (available <= 0) return [];
+      const converted = convertAmount(available, item.unit, ingredient.unit);
+      if (converted === null) return [];
+
+      return [
+        {
+          substitute: {
+            inventoryItem: item,
+            have: converted,
+            coversNeed: converted >= ingredient.amount,
+            // Always 1: an alpha-scaled weight is only correct for a bittering
+            // addition, and we cannot tell which additions those are.
+            doseFactor: 1,
+            justification: buildHopJustification(ingredient.name, wanted, entry),
+          } satisfies MaltSubstitute,
+          order,
+        },
+      ];
+    });
+
+  scored.sort((a, b) => {
+    if (a.substitute.coversNeed !== b.substitute.coversNeed) {
+      return a.substitute.coversNeed ? -1 : 1;
+    }
+    if (a.order !== b.order) return a.order - b.order;
+    return a.substitute.inventoryItem.name.localeCompare(
+      b.substitute.inventoryItem.name
+    );
+  });
+
+  return scored.slice(0, limit).map((entry) => entry.substitute);
+}
+
+/** The "why this hop" sentence, including the alpha gap the brewer must judge. */
+function buildHopJustification(
+  wantedName: string,
+  wanted: HopEntry | undefined,
+  candidate: HopEntry
+): string {
+  const parts = [
+    `The hop chart lists ${candidate.name} as a substitute for ${wantedName}.`,
+  ];
+
+  if (candidate.aroma.length > 0) {
+    parts.push(`Aroma: ${candidate.aroma.join(", ")}.`);
+  }
+
+  const factor = wanted ? bitternessEquivalentFactor(wanted, candidate) : undefined;
+  if (wanted && factor !== undefined) {
+    const wantedAlpha = alphaMidpoint(wanted).toFixed(1);
+    const candidateAlpha = alphaMidpoint(candidate).toFixed(1);
+    if (Math.abs(factor - 1) < 0.1) {
+      parts.push(
+        `Alpha is close (${candidateAlpha}% vs ${wantedAlpha}%), so weight carries over.`
+      );
+    } else {
+      parts.push(
+        `Alpha differs (${candidateAlpha}% vs ${wantedAlpha}%): for a bittering addition use about ${factor.toFixed(2)}× the weight, for a late or dry-hop addition keep the weight and expect a different aroma.`
+      );
+    }
+  }
+
+  return parts.join(" ");
+}
+
 export function findMaltSubstitutes(
   ingredient: RecipeIngredient,
   inventory: InventoryItem[],
